@@ -360,8 +360,9 @@ it('coqui_docs_read falls back to direct parsing when the index is absent', func
 });
 
 it('coqui_docs_read finds a section added after the index was generated', function () {
-    // A VALID but STALE cache: readGenerated() rebuilds only when the file is
-    // absent, corrupt, or version-mismatched — it has no staleness check at all.
+    // A VALID but STALE cache: readGenerated() rebuilds when the file is absent,
+    // corrupt, version-mismatched, or lists different docs than disk — but it
+    // never checks a doc's content.
     // So a doc edited since the last `composer regen-docs` yields an index that
     // omits the new heading, and extractSectionFromIndex cannot match it. This is
     // the one non-theoretical case that justifies keeping the direct-parse
@@ -380,7 +381,7 @@ it('coqui_docs_read finds a section added after the index was generated', functi
 });
 
 it('serves a stale index for a doc edited after generation', function () {
-    // Pins the premise of the test above: if load() ever gained a staleness check,
+    // Pins the premise of the test above: if load() ever gained a content check,
     // that test would start passing via the index and quietly stop covering the
     // fallback it exists to protect.
     $headingsFor = function (array $index): array {

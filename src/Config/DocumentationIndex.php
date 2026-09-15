@@ -301,7 +301,7 @@ final class DocumentationIndex
     }
 
     /**
-     * Read the generated index, or null when absent/unreadable/malformed.
+     * Read the generated index, or null when absent/unreadable/malformed/stale.
      *
      * @return DocIndex|null
      */
@@ -329,6 +329,18 @@ final class DocumentationIndex
         // rebuilt rather than trusted. Without this the cast below is a lie: a
         // versionless cache flows out typed as DocIndex with no version key.
         if (!isset($data['version']) || $data['version'] !== self::VERSION) {
+            return null;
+        }
+
+        // The file list is derived, so a cache that disagrees with disk is stale:
+        // it would offer a renamed or deleted doc and hide a new one. Content
+        // edits are not detected — see CoquiDocsToolkit::extractSectionFromFile.
+        $cachedPaths = array_column($data['files'], 'path');
+        $diskPaths = $this->docPaths();
+        sort($cachedPaths);
+        sort($diskPaths);
+
+        if ($cachedPaths !== $diskPaths) {
             return null;
         }
 
