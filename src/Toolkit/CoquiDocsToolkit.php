@@ -248,6 +248,13 @@ final class CoquiDocsToolkit implements ToolkitInterface
 
         foreach ($this->docsIndex->load()['files'] as $entry) {
             $filePath = $this->normalizedRoot . '/' . $entry['path'];
+
+            // The index is a cache: it can outlive a renamed or deleted doc, or
+            // name one this process cannot read. file() would warn on every search.
+            if (!is_file($filePath) || !is_readable($filePath)) {
+                continue;
+            }
+
             $lines = file($filePath, FILE_IGNORE_NEW_LINES);
 
             if ($lines === false) {

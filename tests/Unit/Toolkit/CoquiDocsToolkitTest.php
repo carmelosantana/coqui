@@ -22,6 +22,29 @@ function coquiDocsFindTool(CoquiDocsToolkit $toolkit, string $name): ToolInterfa
     throw new RuntimeException("Tool '{$name}' not found in CoquiDocsToolkit");
 }
 
+/**
+ * Run $fn and return [its result, every warning it raised].
+ *
+ * A user handler sees warnings even under @, so suppressed ones count too.
+ *
+ * @return array{0: mixed, 1: list<string>}
+ */
+function coquiDocsCaptureWarnings(callable $fn): array
+{
+    $warnings = [];
+    set_error_handler(function (int $errno, string $errstr) use (&$warnings): bool {
+        $warnings[] = $errstr;
+
+        return true;
+    });
+
+    try {
+        return [$fn(), $warnings];
+    } finally {
+        restore_error_handler();
+    }
+}
+
 // ---------------------------------------------------------------
 // Fixture setup
 // ---------------------------------------------------------------
@@ -644,4 +667,38 @@ it('coqui_docs_search works when config/documentation.json is absent', function 
     $data = json_decode($tool->execute(['query' => 'openclaw.json'])->content, true);
 
     expect($data['results'])->not->toBeEmpty();
+});
+
+it('coqui_docs_search skips an indexed doc deleted since the index was generated, without a warning', function () {
+    // The persona rename left local caches listing docs/PROFILES.md after the
+    // file was gone; every search then warned on the missing file.
+    unlink($this->root . '/docs/BBB-FLOW.md');
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    [$result, $warnings] = coquiDocsCaptureWarnings(fn () => $tool->execute(['query' => 'Loop Stages']));
+    $data = json_decode($result->content, true);
+
+    expect($warnings)->toBe([])
+        ->and(array_column($data['results'], 'path'))->toContain('docs/ZLOOPS.md');
+});
+
+it('coqui_docs_search skips an unreadable indexed doc without a warning', function () {
+    $locked = $this->root . '/docs/BBB-FLOW.md';
+    chmod($locked, 0o000);
+
+    try {
+        if (is_readable($locked)) {
+            $this->markTestSkipped('Cannot make a file unreadable here (running as root?)');
+        }
+
+        $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+        [$result, $warnings] = coquiDocsCaptureWarnings(fn () => $tool->execute(['query' => 'Loop Stages']));
+        $data = json_decode($result->content, true);
+    } finally {
+        chmod($locked, 0o644);
+    }
+
+    expect($warnings)->toBe([])
+        ->and(array_column($data['results'], 'path'))->toContain('docs/ZLOOPS.md');
 });
