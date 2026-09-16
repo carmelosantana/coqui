@@ -22,6 +22,29 @@ function coquiDocsFindTool(CoquiDocsToolkit $toolkit, string $name): ToolInterfa
     throw new RuntimeException("Tool '{$name}' not found in CoquiDocsToolkit");
 }
 
+/**
+ * Run $fn and return [its result, every warning it raised].
+ *
+ * A user handler sees warnings even under @, so suppressed ones count too.
+ *
+ * @return array{0: mixed, 1: list<string>}
+ */
+function coquiDocsCaptureWarnings(callable $fn): array
+{
+    $warnings = [];
+    set_error_handler(function (int $errno, string $errstr) use (&$warnings): bool {
+        $warnings[] = $errstr;
+
+        return true;
+    });
+
+    try {
+        return [$fn(), $warnings];
+    } finally {
+        restore_error_handler();
+    }
+}
+
 // ---------------------------------------------------------------
 // Fixture setup
 // ---------------------------------------------------------------
@@ -337,8 +360,9 @@ it('coqui_docs_read falls back to direct parsing when the index is absent', func
 });
 
 it('coqui_docs_read finds a section added after the index was generated', function () {
-    // A VALID but STALE cache: readGenerated() rebuilds only when the file is
-    // absent, corrupt, or version-mismatched — it has no staleness check at all.
+    // A VALID but STALE cache: readGenerated() rebuilds when the file is absent,
+    // corrupt, version-mismatched, or lists different docs than disk — but it
+    // never checks a doc's content.
     // So a doc edited since the last `composer regen-docs` yields an index that
     // omits the new heading, and extractSectionFromIndex cannot match it. This is
     // the one non-theoretical case that justifies keeping the direct-parse
@@ -357,7 +381,7 @@ it('coqui_docs_read finds a section added after the index was generated', functi
 });
 
 it('serves a stale index for a doc edited after generation', function () {
-    // Pins the premise of the test above: if load() ever gained a staleness check,
+    // Pins the premise of the test above: if load() ever gained a content check,
     // that test would start passing via the index and quietly stop covering the
     // fallback it exists to protect.
     $headingsFor = function (array $index): array {
@@ -644,4 +668,38 @@ it('coqui_docs_search works when config/documentation.json is absent', function 
     $data = json_decode($tool->execute(['query' => 'openclaw.json'])->content, true);
 
     expect($data['results'])->not->toBeEmpty();
+});
+
+it('coqui_docs_search skips an indexed doc deleted since the index was generated, without a warning', function () {
+    // The persona rename left local caches listing docs/PROFILES.md after the
+    // file was gone; every search then warned on the missing file.
+    unlink($this->root . '/docs/BBB-FLOW.md');
+    $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+    [$result, $warnings] = coquiDocsCaptureWarnings(fn () => $tool->execute(['query' => 'Loop Stages']));
+    $data = json_decode($result->content, true);
+
+    expect($warnings)->toBe([])
+        ->and(array_column($data['results'], 'path'))->toContain('docs/ZLOOPS.md');
+});
+
+it('coqui_docs_search skips an unreadable indexed doc without a warning', function () {
+    $locked = $this->root . '/docs/BBB-FLOW.md';
+    chmod($locked, 0o000);
+
+    try {
+        if (is_readable($locked)) {
+            $this->markTestSkipped('Cannot make a file unreadable here (running as root?)');
+        }
+
+        $tool = coquiDocsFindTool(new CoquiDocsToolkit(projectRoot: $this->root), 'coqui_docs_search');
+
+        [$result, $warnings] = coquiDocsCaptureWarnings(fn () => $tool->execute(['query' => 'Loop Stages']));
+        $data = json_decode($result->content, true);
+    } finally {
+        chmod($locked, 0o644);
+    }
+
+    expect($warnings)->toBe([])
+        ->and(array_column($data['results'], 'path'))->toContain('docs/ZLOOPS.md');
 });

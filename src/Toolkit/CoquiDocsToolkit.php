@@ -248,6 +248,13 @@ final class CoquiDocsToolkit implements ToolkitInterface
 
         foreach ($this->docsIndex->load()['files'] as $entry) {
             $filePath = $this->normalizedRoot . '/' . $entry['path'];
+
+            // The index is a cache: it can outlive a renamed or deleted doc, or
+            // name one this process cannot read. file() would warn on every search.
+            if (!is_file($filePath) || !is_readable($filePath)) {
+                continue;
+            }
+
             $lines = file($filePath, FILE_IGNORE_NEW_LINES);
 
             if ($lines === false) {
@@ -439,9 +446,10 @@ final class CoquiDocsToolkit implements ToolkitInterface
      * It only runs for a file already in the index whose heading
      * extractSectionFromIndex could not match, applying the same
      * exact-then-substring rule. What justifies it is the stale cache:
-     * readGenerated() rebuilds on absent, corrupt, or version-mismatched — never
-     * on merely out-of-date — so a doc edited since the last `composer regen-docs`
-     * yields an index missing its newest headings. That is routine while editing
+     * readGenerated() rebuilds on absent, corrupt, version-mismatched, or a file
+     * list that no longer matches disk — never on a doc whose content changed —
+     * so a doc edited since the last `composer regen-docs` yields an index
+     * missing its newest headings. That is routine while editing
      * docs, and a silent "section not found" on a heading that plainly exists is
      * the failure class this toolkit exists to eliminate.
      *

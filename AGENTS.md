@@ -207,7 +207,7 @@ description: "Hands-off multi-role iteration cycles: built-in and custom definit
 ---
 ```
 
-The index is regenerated automatically in the release and Docker builds, so shipped artifacts always carry a current one. Run `composer regen-docs` to refresh it locally. `CoquiDocsToolkit` treats it as a cache — when it is absent (a fresh checkout), the index is derived from disk at call time. Keeping it out of version control stops parallel doc branches from colliding on a machine-generated file.
+The index is regenerated automatically in the release and Docker builds, so shipped artifacts always carry a current one. Run `composer regen-docs` to refresh it locally. `CoquiDocsToolkit` treats it as a cache — when it is absent (a fresh checkout) or lists different docs than are on disk (a doc was added, renamed, or deleted since the last regen), the index is derived from disk at call time. Edits inside an existing doc are not detected, so run `composer regen-docs` after changing headings. Keeping it out of version control stops parallel doc branches from colliding on a machine-generated file.
 
 ## Practical Change Checklist
 

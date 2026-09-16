@@ -69,12 +69,16 @@ final class CatastrophicBlacklist
         '/>>?\s*\/Library\/Launch(Agents|Daemons)\//i',
     ];
 
+    /** @var list<string> */
+    private readonly array $additionalPatterns;
+
     /**
      * @param string[] $additionalPatterns User-configured patterns from openclaw.json
      */
-    public function __construct(
-        private readonly array $additionalPatterns = [],
-    ) {}
+    public function __construct(array $additionalPatterns = [])
+    {
+        $this->additionalPatterns = self::compilablePatterns($additionalPatterns);
+    }
 
     /**
      * Build from an openclaw.json config.
@@ -109,12 +113,37 @@ final class CatastrophicBlacklist
         }
 
         foreach ($this->additionalPatterns as $pattern) {
-            if (@preg_match($pattern, $input)) {
+            if (preg_match($pattern, $input)) {
                 return "Blocked by user-configured safety pattern: {$pattern}";
             }
         }
 
         return null;
+    }
+
+    /**
+     * Drop user patterns that do not compile.
+     *
+     * Validated once here so matches() never hands preg_match a broken pattern,
+     * which would warn on every checked tool call. A scoped handler rather than
+     * @, because error handlers still observe @-suppressed warnings.
+     *
+     * @param string[] $patterns
+     *
+     * @return list<string>
+     */
+    private static function compilablePatterns(array $patterns): array
+    {
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            return array_values(array_filter(
+                $patterns,
+                static fn (string $pattern): bool => preg_match($pattern, '') !== false,
+            ));
+        } finally {
+            restore_error_handler();
+        }
     }
 
     /**

@@ -82,11 +82,29 @@ test('user patterns are checked after hardcoded', function () {
     expect($bl->matches('some safe command'))->toBeNull();
 });
 
-test('invalid user regex is ignored gracefully', function () {
-    $bl = new CatastrophicBlacklist(additionalPatterns: ['[invalid regex']);
+test('invalid user regex is dropped without emitting a warning', function () {
+    $warnings = [];
+    // A user handler sees warnings even under @, so this catches suppressed ones too.
+    set_error_handler(function (int $errno, string $errstr) use (&$warnings): bool {
+        $warnings[] = $errstr;
 
-    // @preg_match suppresses the error — should not match anything
-    expect(@$bl->matches('anything'))->toBeNull();
+        return true;
+    });
+
+    try {
+        $bl = new CatastrophicBlacklist(additionalPatterns: ['[invalid regex', '/\bmy_dangerous\b/i']);
+        $safe = $bl->matches('anything');
+        $blocked = $bl->matches('my_dangerous command');
+        $patterns = $bl->allPatterns();
+    } finally {
+        restore_error_handler();
+    }
+
+    expect($warnings)->toBe([])
+        ->and($safe)->toBeNull()
+        ->and($blocked)->not->toBeNull()
+        ->and($patterns)->not->toContain('[invalid regex')
+        ->and($patterns)->toContain('/\bmy_dangerous\b/i');
 });
 
 test('allPatterns includes hardcoded and user patterns', function () {

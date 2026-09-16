@@ -236,12 +236,40 @@ it('load() returns the generated index when it is present and valid', function (
     writeDoc($this->root, 'docs/ONDISK.md', "# On Disk\n\nText.\n");
     file_put_contents($this->root . '/config/documentation.json', json_encode([
         'version' => '1.0.0',
-        'files' => [['path' => 'docs/CACHED.md', 'title' => 'Cached', 'description' => 'From cache', 'sections' => []]],
+        'files' => [['path' => 'docs/ONDISK.md', 'title' => 'Cached', 'description' => 'From cache', 'sections' => []]],
     ]));
 
     $index = (new DocumentationIndex($this->root))->load();
 
-    expect(array_column($index['files'], 'path'))->toBe(['docs/CACHED.md']);
+    expect(array_column($index['files'], 'title'))->toBe(['Cached']);
+});
+
+it('load() rebuilds when a cached doc no longer exists on disk', function () {
+    // The persona rename: a local cache kept docs/PROFILES.md after the file
+    // became docs/PERSONAS.md, so the agent was offered a doc that was gone
+    // and never shown the one that replaced it.
+    writeDoc($this->root, 'docs/PERSONAS.md', "# Personas\n\nText.\n");
+    file_put_contents($this->root . '/config/documentation.json', json_encode([
+        'version' => '1.0.0',
+        'files' => [['path' => 'docs/PROFILES.md', 'title' => 'Profiles', 'description' => 'Gone', 'sections' => []]],
+    ]));
+
+    $index = (new DocumentationIndex($this->root))->load();
+
+    expect(array_column($index['files'], 'path'))->toBe(['docs/PERSONAS.md']);
+});
+
+it('load() rebuilds when a doc on disk is missing from the cache', function () {
+    writeDoc($this->root, 'docs/OLD.md', "# Old\n\nText.\n");
+    writeDoc($this->root, 'docs/NEW.md', "# New\n\nText.\n");
+    file_put_contents($this->root . '/config/documentation.json', json_encode([
+        'version' => '1.0.0',
+        'files' => [['path' => 'docs/OLD.md', 'title' => 'Cached', 'description' => 'From cache', 'sections' => []]],
+    ]));
+
+    $index = (new DocumentationIndex($this->root))->load();
+
+    expect(array_column($index['files'], 'path'))->toBe(['docs/NEW.md', 'docs/OLD.md']);
 });
 
 it('load() falls back to build() when the generated index is absent', function () {
