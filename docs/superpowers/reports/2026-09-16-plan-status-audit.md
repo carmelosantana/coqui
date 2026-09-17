@@ -56,3 +56,51 @@ Each fact below was checked against the code at `79d87b3`.
 | T2 stub-context test, T4 duplicate ordering test | identity-backstory SDD | **Fold into the T7 change (trivial) or drop.** T2: `PersonaPreferencesContextGateTest` checks that `stub` mode parses, but nothing checks the orchestrator stub text (`OrchestratorAgent.php:1182`); one assertion would cover it. T4: `OrchestratorContextSectionTest.php:86` repeats a test in `PromptLoaderContextTest`. It does no harm, so deleting it is optional. |
 | `coqui-toolkit-backstory-formats` abandon/archive, agencoqui.com submission | memory `identity-backstory-consolidation.md` | **Handle in the sibling-repos plan, not here** (Kanboard #4427; [plan](../plans/2026-09-16-coquibot-sibling-repos-hygiene.md) Task 3). Read-only checks on 2026-09-16:<br>• Local commit `2cbfe9c` must **not** be pushed as it is. Its message has a `Co-Authored-By` trailer, so it needs rewording first.<br>• That commit sets `"abandoned": "coquibot/coqui-toolkit-backstory"`, which is the right name: it matches the published repo's `composer.json` and is live on Packagist. `carmelosantana/coqui-toolkit-backstory` returns 404 on Packagist.<br>• `coquibot/coqui-toolkit-backstory-formats` is **not on Packagist** (404), so there is nothing to mark abandoned there. The `composer.json` flag plus archiving the GitHub repo cover it.<br>• Submitting `coqui-toolkit-backstory` to agencoqui.com is still user-gated. |
 | Smaller Phase 2–5 tidies | memory `cap-0.5-conformance-migration.md` | **Batch into one tech-debt plan.** Checked today: `ArtifactStore` still has 5 `migrateAddColumn` calls, which breaks the no-legacy rule. `ImportService` is only referenced inside `src/Import/`. `/projects` routes are still registered. The remaining memory items (skills profile with no routes, schedule enable/disable/trigger returning raw rows, idempotency-key TTL, attachment scratch cleanup, `ScheduleFileDefinition` spellings) were not rechecked in this audit. |
+
+## Branches
+
+Checked 2026-09-17 after `git fetch --prune`. The main checkout's `main` now matches `origin/main` (`79d87b3`; its reflog shows `pull --ff-only` at 2026-09-16 18:37), so it is no longer stale. Ahead and unique counts below are still measured against `origin/main` (`git rev-list --count origin/main..<b>`, `git cherry origin/main <b>`).
+
+**The refs have changed since the plan was written (2026-09-15).** Every branch the plan lists as a delete candidate is already gone: all 8 upstream-gone local branches, `fix/test-warnings`, `chore/php-agents-0.15.2`, `chore/react-http-1.11.1`, `verify/combined`, and all 13 Apr–Jun remote branches. `git ls-remote --heads origin` returns only `main`. This audit did not delete them, and the git reflog does not record who did. The worktree `reverent-diffie-bd7f41` left `verify/combined` at 2026-09-16 18:38 and is now on a detached HEAD at `79d87b3` with 0 dirty files.
+
+### Local branches and worktrees
+
+| Branch / worktree | Where | State | Recommendation |
+| --- | --- | --- | --- |
+| `chore/core-cleanup-2026-09` | local; worktree `gifted-greider-b7467e` | ahead 2, unique 2 (this cleanup: `103caa0`, `27917b1`, plus this commit) | keep |
+| `claude/gifted-greider-b7467e` | local; not checked out | at `79d87b3`, ahead 0 / unique 0. This session's scratch branch, created with the worktree, which then switched to `chore/core-cleanup-2026-09`. It holds no commits of its own. | delete once this session ends |
+| `claude/hungry-dhawan-ec8475` | local; worktree `hungry-dhawan-ec8475` (created 2026-09-16 19:58) | at `79d87b3`, ahead 0 / unique 0, 0 dirty files. Probably a separate live session. | keep until that session is confirmed finished |
+| worktree `reverent-diffie-bd7f41` | detached HEAD `79d87b3` | 0 dirty files. Belongs to the session that ran #173/#174/#175 and `verify/combined`. | keep until that session is confirmed finished |
+| `main` (main checkout) | local | `79d87b3` = `origin/main`. Only untracked files are the 2 plan files from `103caa0`, byte-identical. | no action (plain `pull` is done). Remove the 2 untracked copies after this branch merges. |
+| `claude/nostalgic-golick-577934` (#172 MERGED), `claude/reverent-diffie-bd7f41`, `feat/webhooks-extraction`, `claude/jolly-montalcini-98a864`, `feat/repl-slim`, `feat_mcp-client-core`, `feat/backstory-formats-extraction`, `feat_lean-default` | local | already deleted | none |
+| `fix/test-warnings` (#174), `chore/php-agents-0.15.2` (#173), `chore/react-http-1.11.1` (#175) | local and origin | already deleted (all 3 PRs MERGED 2026-09-16) | none |
+| `verify/combined` | local | already deleted (throwaway merge branch) | none |
+
+### Remote branches with merged PRs (all already deleted from origin)
+
+Each was confirmed with `gh pr view N --json state,mergedAt`.
+
+| Branch | PR | State | Recommendation |
+| --- | --- | --- | --- |
+| `chore_refactor-launcher` | #135 | MERGED 2026-04-25 | none (already deleted) |
+| `chore_agentcoqui-domain` | #136 | MERGED 2026-04-25 | none (already deleted) |
+| `chore_clean-packages` | #137 | MERGED 2026-04-25 | none (already deleted) |
+| `chore_add-json-tool-results` | #138 | MERGED 2026-04-28 | none (already deleted) |
+| `chore_remove-toolkit-gen` | #139 | MERGED 2026-04-28 | none (already deleted) |
+| `feat_adds-options-api` | #140 | MERGED 2026-05-13 | none (already deleted) |
+| `chore_bump-composer-cicd` | #141 | MERGED 2026-05-13 | none (already deleted) |
+| `feat_adds-thinking-settings` | #142 | MERGED 2026-06-30 | none (already deleted) |
+| `chore_cleanup-workspace-creation` | #143 | MERGED 2026-06-30 | none (already deleted) |
+
+### Remote branches that never had a PR (already deleted from origin; commits now unreachable)
+
+Each of these was a single orphan root commit carrying the whole tree, so the check was by behavior, not by diff. `gh pr list --head <b>` finds no PR for any of them. The commits are still present in the main checkout's object store: `git fsck --unreachable` lists all four. That lasts only until `gc` prunes them.
+
+| Branch | Commit | Behavior | Evidence on `main` (`79d87b3`) | Verdict |
+| --- | --- | --- | --- | --- |
+| `chore_refactor-big-constructors` | `736d89e` (2026-06-20) | Moves OrchestratorAgent's optional dependencies into one value object | `src/Agent/OrchestratorDependencies.php:49` `final readonly class OrchestratorDependencies`; `src/Agent/OrchestratorAgent.php:208-214` has 5 core params plus `OrchestratorDependencies $deps` | landed |
+| `chore_support-native-arrays` | `b7464c7` (2026-04-26) | MCP server loading modes (eager/deferred/auto) and composite toolkits | `src/Contract/ToolkitLoadingMode.php:17`; `src/Contract/CompositeToolkitProvider.php:16`, used at `src/Agent/OrchestratorAgent.php:2614`; `src/Config/ToolkitLoadingRegistry.php`; `src/Api/Handler/McpServerHandler.php:33,162-172` (promote/demote/auto); `src/Mcp/Support/ServerLoadingModeStore.php` | landed |
+| `chore_surface-session-cleanup` | `38c8a9c` (2026-04-23) | Leaves hidden background sessions out of the API and REPL | `src/Storage/SessionStorage.php:777` (`listSessions` filters `visibility = 'visible'`), `:969` `getSurfacedSession`; `src/Api/SessionAccess.php:17` uses it; REPL `src/Repl/Handler/SessionHandler.php:187` calls `listSessions` | landed |
+| `feat_queue-title-session` | `056a2c9` (2026-04-24) | Queued session-title job plus worker command | `src/Command/SessionTitleRunCommand.php:21` (`session-title:run`); `src/Api/SessionTitleJobManager.php:18`; wired at `src/Command/ApiCommand.php:196` and `bin/coqui-console:26`; `tests/Unit/Command/ConsoleWorkerRegistrationTest.php` matches the branch's version byte for byte | landed |
+
+None of the four is worth reviving, so losing the unreachable objects costs nothing.
