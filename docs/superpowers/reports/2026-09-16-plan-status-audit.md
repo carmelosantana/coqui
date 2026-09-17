@@ -35,13 +35,13 @@ Unchecked `- [ ]` boxes do not count as evidence. Every plan has 0 checked boxes
 | 2026-07-16-source-map-removal-and-docs-redesign | shipped | PR #162 → `e9c4de2`; `config/source.json` and `CoquiSourceToolkit` absent; `src/Config/DocumentationIndex.php` present | — |
 | 2026-07-20-audit-log-redaction-and-access | shipped | PR #165 → `d5d4df8`; `AuditRedactor`, `src/Storage/AuditLogStore.php` present | — |
 | 2026-07-30-phase-0-conformance-gate-scaffold | shipped | PR #166 → `61209e7` (`5c2f0f2`…`ecce668`), plus PR #168 → `b91cdaa` (vendored vectors had been gitignored); `tests/conformance/CoreChecklistTest.php` present | — |
-| 2026-07-30-phase-1-persona-rename | shipped | PR #166 → `61209e7` (`0b1f511`…`e93afa8`); `src/Config/Persona*.php`; [phase-1 report](2026-07-30-phase-1-status.md) | Four non-CAP extension sites still use `profile` (see the [phase-6 report](2026-08-04-phase-6-status.md) carry-forwards). |
+| 2026-07-30-phase-1-persona-rename | shipped | PR #166 → `61209e7` (`0b1f511`…`e93afa8`); `src/Config/Persona*.php`; [phase-1 report](2026-07-30-phase-1-status.md) | App-side follow-up (`carmelosantana/coqui-app`, not core): four B2 client call sites still send `profile` — `inspectBackstory`, `createChannelLink`, `createWebhook`/`updateWebhook` (see the [phase-6 report](2026-08-04-phase-6-status.md) carry-forwards). Channels were removed in #148 (merged) and the generator behind `/server/backstory` in #157 (merged); core registers no backstory or channel route at `79d87b3`, so `inspectBackstory` and `createChannelLink` are probably dead code in the app. The webhook calls target the `coqui-toolkit-webhooks` mod, so their key still needs checking there. |
 | 2026-07-30-phase-2-storage-reshape | shipped | PR #166 → `61209e7` (`ae0b8b2`…`e06623f`); [phase-2 report](2026-07-30-phase-2-status.md) | Small tidies (see below): `ArtifactStore` still has 5 `migrateAddColumn` calls. |
 | 2026-07-31-phase-3-runtime | shipped | PR #166 → `61209e7` (`f9f0b18`…`211b0b1`); [phase-3 report](2026-07-31-phase-3-status.md) | — |
 | 2026-08-04-phase-4-api-surface | shipped | PR #166 → `61209e7` (`db120b9` status); [phase-4 report](2026-08-04-phase-4-status.md) | Turn-events replay is not CAP-normalized (see below). |
 | 2026-08-04-phase-5-new-ops-profiles | shipped | PR #166 → `61209e7` (`4b770b5` status); [phase-5 report](2026-08-04-phase-5-status.md) | HTTP child run has no toolkits (see below); `ImportService` is not wired to any route. |
-| 2026-08-04-phase-6-gate-green-flutter-delta | shipped | Part A: PR #166 → `61209e7` (`dde68dc`, `fa11b55`). Part B: app#20 (2026-08-06), app#22 (2026-08-07), app releases v0.0.6 and v0.0.7. The [phase-6 report](2026-08-04-phase-6-status.md) still says "unpushed; no PRs opened", which is out of date. | See below. |
-| 2026-09-16-coqui-core-cleanup | partially shipped | This plan; tasks 5+ pending. Tasks 1–3 verified #173/#174/#175 on `origin/main`. This audit is Task 4. | — |
+| 2026-08-04-phase-6-gate-green-flutter-delta | shipped | Part A: PR #166 → `61209e7` (`dde68dc`, `fa11b55`). Part B: app#20 (2026-08-06), app#22 (2026-08-07), app releases v0.0.6 and v0.0.7. The [phase-6 report](2026-08-04-phase-6-status.md) still says "unpushed; no PRs opened", which is out of date. | See the "Turn-events replay not CAP-frame-normalized" and "HTTP-spawned child run is toolkit-less" rows under Open follow-ups. |
+| 2026-09-16-coqui-core-cleanup | partially shipped | This plan. Tasks 1–3 verified (#173/#174/#175 on `origin/main` at `79d87b3`). Tasks 4–5 are reported in this document (`103caa0`, `27917b1`, `1252765`). Every deletion target in the plan was already gone. | Remaining: the user-approval steps and finishing the branch. |
 | 2026-09-16-coquibot-sibling-repos-hygiene | not started | Added in this commit; no execution yet | — |
 
 ## Open follow-ups needing a decision
@@ -67,7 +67,7 @@ Checked 2026-09-17 after `git fetch --prune`. The main checkout's `main` now mat
 
 | Branch / worktree | Where | State | Recommendation |
 | --- | --- | --- | --- |
-| `chore/core-cleanup-2026-09` | local; worktree `gifted-greider-b7467e` | ahead 2, unique 2 (this cleanup: `103caa0`, `27917b1`, plus this commit) | keep |
+| `chore/core-cleanup-2026-09` | local; worktree `gifted-greider-b7467e` | carries this audit's commits (`103caa0` onward; not yet merged) | keep |
 | `claude/gifted-greider-b7467e` | local; not checked out | at `79d87b3`, ahead 0 / unique 0. This session's scratch branch, created with the worktree, which then switched to `chore/core-cleanup-2026-09`. It holds no commits of its own. | delete once this session ends |
 | `claude/hungry-dhawan-ec8475` | local; worktree `hungry-dhawan-ec8475` (created 2026-09-16 19:58) | at `79d87b3`, ahead 0 / unique 0, 0 dirty files. Probably a separate live session. | keep until that session is confirmed finished |
 | worktree `reverent-diffie-bd7f41` | detached HEAD `79d87b3` | 0 dirty files. Belongs to the session that ran #173/#174/#175 and `verify/combined`. | keep until that session is confirmed finished |
