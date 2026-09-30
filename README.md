@@ -94,7 +94,7 @@ Or use **Docker** — no local PHP required. The Docker image includes the defau
 
 ## Installation
 
-The installer detects your OS, installs PHP 8.4+ and required extensions if missing, downloads the latest Coqui release, verifies the SHA-256 checksum, and adds `coqui` to your PATH — no Git or Composer required.
+The installer sets Coqui up as a Docker stack when Docker is available and adds a `coqui` command. Without Docker (or with `--native`) it installs PHP 8.4+ and the required extensions if missing, downloads the latest Coqui release, verifies the SHA-256 checksum, and adds `coqui` to your PATH — no Git or Composer required.
 
 ### Linux / macOS / WSL2
 
@@ -102,13 +102,9 @@ The installer detects your OS, installs PHP 8.4+ and required extensions if miss
 curl -fsSL https://agentcoqui.com/install | bash
 ```
 
-### Windows (WSL2 Bootstrap)
+### Windows
 
-Run the Windows bootstrap in PowerShell. It checks for WSL2, offers to install Ubuntu when needed, and then runs the standard Coqui installer inside WSL.
-
-```powershell
-irm https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.ps1 | iex
-```
+There is no native Windows installer. Use [Docker](#docker), or run the Linux command above inside WSL2.
 
 ### Update
 
@@ -116,8 +112,7 @@ Re-run the same install command. The installer detects an existing installation 
 
 ### Inspect before running
 
-- Linux / macOS / WSL2: [install.sh](https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.sh)
-- Windows bootstrap: [install.ps1](https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.ps1)
+- [install.sh](https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.sh)
 
 ### Development Install
 
@@ -132,11 +127,7 @@ composer install
 Alternatively, use the `--dev` flag with the installer to clone and set up in one step:
 
 ```bash
-# Linux / macOS
 ./install.sh --dev
-
-# Windows
-.\install.ps1 -Dev
 ```
 
 ## Quick Start
