@@ -108,7 +108,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 1. **Soul** (orchestrator prompt only) — place a `prompts/soul.md` file in your workspace to define the orchestrator's core identity, values, and personality. It is loaded before the rest of the orchestrator prompt stack. Keep it to 2–5K tokens.
 2. **Indexed memories** (searchable, selectively injected) — import key developmental milestones and identity anchors as high-importance (≥ 0.9) memory entries via `memory_import` or `memory_save`. These are pinned (exempt from decay), searchable, and summarized into the system prompt.
-3. **Full archive** (file-accessible) — keep the complete identity document in the workspace as a file. The agent can retrieve specific sections on demand via `read_file` and `file_search`.
+3. **Full archive** (file-accessible) — keep the complete identity document in the workspace as a file. The agent can retrieve specific sections on demand via `read_file` and `search_files`.
 
 ## <a id="runtime-extensibility"></a> 📦 Runtime Extensibility
 

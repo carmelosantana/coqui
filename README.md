@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://agentcoqui.com/">Website</a> ·
-  <a href="https://agentcoqui.com/docs">Docs</a> ·
+  <a href="https://docs.agentcoqui.com">Docs</a> ·
   <a href="https://agentcoqui.com">Toolkits</a> ·
   <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
 </p>
@@ -52,9 +52,9 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 ## Features
 
 - 🤖 [**Multi-Model Orchestration**](docs/FEATURES.md#multi-model-orchestration) — route tasks to the right model with automatic failover
-- 🔀 [**Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, researcher, planner, reviewer, muse, philosopher) with role-appropriate models
+- 🔀 [**Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, explorer, plan, reviewer, muse, philosopher) with role-appropriate models
 - 🧠 [**Memory Persistence**](docs/FEATURES.md#memory-persistence) — cross-session memory with SQLite, FTS5, and optional vector embeddings
-- 📦 [**Runtime Extensibility**](docs/FEATURES.md#runtime-extensibility) — install Composer toolkits at runtime; browse [coqui.space](https://agentcoqui.com)
+- 📦 [**Runtime Extensibility**](docs/FEATURES.md#runtime-extensibility) — install Composer toolkits at runtime; browse [agentcoqui.com](https://agentcoqui.com)
 - 🔐 [**Credential Management**](docs/FEATURES.md#credential-management) — declarative `.env`-based secrets with hot-reload and automatic guards
 - 📋 [**Skills System**](docs/FEATURES.md#skills-system) — teach Coqui any workflow with plain Markdown files — no code required
 - ⏰ [**Scheduled Tasks**](docs/FEATURES.md#scheduled-tasks) — cron-style automation with circuit breakers
@@ -94,7 +94,7 @@ Or use **Docker** — no local PHP required. The Docker image includes the defau
 
 ## Installation
 
-The installer detects your OS, installs PHP 8.4+ and required extensions if missing, downloads the latest Coqui release, verifies the SHA-256 checksum, and adds `coqui` to your PATH — no Git or Composer required.
+The installer sets Coqui up as a Docker stack when Docker is available and adds a `coqui` command. Without Docker (or with `--native`) it installs PHP 8.4+ and the required extensions if missing, downloads the latest Coqui release, verifies the SHA-256 checksum, and adds `coqui` to your PATH — no Git or Composer required.
 
 ### Linux / macOS / WSL2
 
@@ -102,13 +102,9 @@ The installer detects your OS, installs PHP 8.4+ and required extensions if miss
 curl -fsSL https://agentcoqui.com/install | bash
 ```
 
-### Windows (WSL2 Bootstrap)
+### Windows
 
-Run the Windows bootstrap in PowerShell. It checks for WSL2, offers to install Ubuntu when needed, and then runs the standard Coqui installer inside WSL.
-
-```powershell
-irm https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.ps1 | iex
-```
+There is no native Windows installer. Use [Docker](#docker), or run the Linux command above inside WSL2.
 
 ### Update
 
@@ -116,8 +112,7 @@ Re-run the same install command. The installer detects an existing installation 
 
 ### Inspect before running
 
-- Linux / macOS / WSL2: [install.sh](https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.sh)
-- Windows bootstrap: [install.ps1](https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.ps1)
+- [install.sh](https://raw.githubusercontent.com/carmelosantana/coqui-installer/main/install.sh)
 
 ### Development Install
 
@@ -129,14 +124,10 @@ cd coqui
 composer install
 ```
 
-Alternatively, use the `--dev` flag with the installer to clone and set up in one step:
+Alternatively, let the installer clone and set up in one step. `--dev` applies only to the native install path; when Docker is available the installer sets up the Docker stack and ignores `--dev` unless you also pass `--native`:
 
 ```bash
-# Linux / macOS
-./install.sh --dev
-
-# Windows
-.\install.ps1 -Dev
+./install.sh --dev --native
 ```
 
 ## Quick Start
@@ -163,7 +154,7 @@ If a previous session left stale Coqui processes behind, run:
 `cleanup` only targets stale or conflicting Coqui-owned processes for this checkout. It does not blindly kill unrelated PHP processes.
 
 ```txt
- Coqui v0.1.0
+ Coqui v0.0.33
 
  Session  a3f8b2c1
  Model    ollama/glm-4.7-flash:latest

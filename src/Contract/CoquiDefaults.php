@@ -17,7 +17,7 @@ final class CoquiDefaults
     /** Default maximum agent loop iterations (config: agents.defaults.maxIterations). */
     public const int MAX_ITERATIONS = 256;
 
-    /** Maximum iterations for background tasks (unattended, capped for safety). */
+    /** Maximum iterations for background tasks (unattended, capped for safety) (config: agents.defaults.backgroundTaskMaxIterations). */
     public const int BACKGROUND_TASK_MAX_ITERATIONS = 512;
 
     /** Default concurrent background tasks (config: api.tasks.maxConcurrent). */

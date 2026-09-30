@@ -71,27 +71,9 @@ The simplest valid config only needs a primary model:
             "model": {
                 "primary": "ollama/qwen3:latest",
                 "fallbacks": ["ollama/llama3.2:latest"],
-                "utility": "ollama/gemma3:4b"
-            },
-            "imageModel": {
-                "primary": "ollama/jmorgan/z-image-turbo:fp8",
-                "fallbacks": [
-                    "openai/gpt-image-1.5",
-                    "ollama/x/z-image-turbo:latest",
-                    "ollama/x/flux2-klein:4b-fp8"
-                ],
-                "vendors": {
-                    "openai": {
-                        "model": "gpt-image-1.5",
-                        "baseUrl": "https://api.openai.com/v1",
-                        "quality": "standard",
-                        "size": "1024x1024"
-                    },
-                    "ollama": {
-                        "model": "jmorgan/z-image-turbo:fp8",
-                        "host": "http://localhost:11434"
-                    }
-                }
+                "utility": "ollama/gemma3:4b",
+                "imageModel": "ollama/jmorgan/z-image-turbo:fp8",
+                "imageFallbacks": ["openai/gpt-image-1.5"]
             },
             "roles": {
                 "orchestrator": "ollama/qwen3:latest",
@@ -105,6 +87,10 @@ The simplest valid config only needs a primary model:
             "backgroundTaskMaxIterations": 512,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "allowSudo": false,
+            "shell": {
+                "sandboxWrites": true,
+                "scrubEnvironment": true
+            },
             "blacklist": ["/pattern-to-block/i"],
             "mcp": {
                 "allowedStdioCommands": [
@@ -123,7 +109,10 @@ The simplest valid config only needs a primary model:
                 }
             ],
             "memory": {
-                "embeddingModel": "openai/text-embedding-3-small"
+                "embeddingModel": "openai/text-embedding-3-small",
+                "autoExtract": false,
+                "coreSummaryMaxTokens": 500,
+                "coreSummaryEntryLimit": 50
             },
             "context": {
                 "conversationHistoryInSystemPrompt": false,
@@ -131,10 +120,40 @@ The simplest valid config only needs a primary model:
                 "autoSummarizeThreshold": 64,
                 "autoSummarizeTurnThreshold": 20,
                 "autoSummarizeKeepRecent": 15,
-                "keepRecentTurns": 10,
+                "keepRecentTurns": 24,
                 "budgetSafetyMarginPercent": 20,
                 "budgetExitThreshold": 0.85,
                 "budgetExitWrapUpIterations": 2
+            },
+            "maxTools": 0,
+            "toolkitTokenBudget": 20000,
+            "toolkitPromotionBudgetPercent": 60,
+            "codeReview": {
+                "enabled": true,
+                "maxRounds": 2,
+                "autoIterate": true
+            },
+            "editHistory": {
+                "retentionDays": 7
+            },
+            "hints": true,
+            "footer": {
+                "backgroundTasks": true
+            }
+        }
+    },
+    "images": {
+        "ownerName": "Your Name",
+        "providers": {
+            "openai": {
+                "model": "gpt-image-1.5",
+                "baseUrl": "https://api.openai.com/v1",
+                "quality": "standard",
+                "size": "1024x1024"
+            },
+            "ollama": {
+                "model": "jmorgan/z-image-turbo:fp8",
+                "baseUrl": "http://localhost:11434"
             }
         }
     },
@@ -168,6 +187,8 @@ The primary model used when no role-specific mapping exists.
 | `primary` | string | yes | Model string in `provider/model` format |
 | `fallbacks` | string[] | no | Fallback models tried in order if the primary fails |
 | `utility` | string | no | Cheap/fast model for internal tasks (titles, summaries, memory compression) |
+| `imageModel` | string | no | Default image-generation model in `provider/model` format (see [Image generation](#image-generation)) |
+| `imageFallbacks` | string[] | no | Image models tried in order when `imageModel` fails |
 
 ```json
 {
@@ -181,28 +202,30 @@ The primary model used when no role-specific mapping exists.
 
 **Utility model resolution**: `model.utility` → `COQUI_UTILITY_MODEL` env var → title-generator role model → primary model.
 
-### `imageModel`
+### Image generation
 
-Separate defaults for image-generation toolkits and the `/image` REPL command. This config is independent from the active chat or role model.
+Image-generation toolkits and the `/image` REPL command use their own model settings, independent of the active chat or role model. The image model lives under `agents.defaults.model`, and per-vendor settings live in a top-level `images` block:
 
-| Key | Type | Required | Description |
-| --- | ---- | -------- | ----------- |
-| `primary` | string | no | Default image model in `provider/model` format |
-| `fallbacks` | string[] | no | Fallback image models tried in order by image-capable toolkits |
-| `ownerName` | string | no | Default metadata owner name embedded into generated images unless explicitly overridden |
-| `choices` | object | no | Optional curated image-model choices used by the setup wizard |
-| `vendors` | object | no | Vendor-specific defaults such as `model`, `baseUrl`, `host`, `quality`, and `size` |
+| Key | Type | Description |
+| --- | ---- | ----------- |
+| `agents.defaults.model.imageModel` | string | Default image model in `provider/model` format |
+| `agents.defaults.model.imageFallbacks` | string[] | Image models tried in order by image-capable toolkits |
+| `images.ownerName` | string | Default owner name embedded in generated-image metadata unless explicitly overridden |
+| `images.providers.<vendor>` | object | Vendor defaults: `model` (required), `baseUrl`, and for OpenAI `quality` and `size` |
 
 ```json
 {
-    "imageModel": {
-        "primary": "ollama/jmorgan/z-image-turbo:fp8",
-        "fallbacks": [
-            "openai/gpt-image-1.5",
-            "ollama/x/z-image-turbo:latest",
-            "ollama/x/flux2-klein:4b-fp8"
-        ],
-        "vendors": {
+    "agents": {
+        "defaults": {
+            "model": {
+                "primary": "ollama/qwen3:latest",
+                "imageModel": "ollama/jmorgan/z-image-turbo:fp8",
+                "imageFallbacks": ["openai/gpt-image-1.5"]
+            }
+        }
+    },
+    "images": {
+        "providers": {
             "openai": {
                 "model": "gpt-image-1.5",
                 "baseUrl": "https://api.openai.com/v1",
@@ -211,14 +234,14 @@ Separate defaults for image-generation toolkits and the `/image` REPL command. T
             },
             "ollama": {
                 "model": "jmorgan/z-image-turbo:fp8",
-                "host": "http://localhost:11434"
+                "baseUrl": "http://localhost:11434"
             }
         }
     }
 }
 ```
 
-Current first-party image support targets `openai` and `ollama`. For Ollama, Coqui checks whether the resolved image model is already available locally and asks for confirmation before pulling a missing model.
+The setup wizard writes this shape. Current first-party image support targets `openai` and `ollama`. For Ollama, Coqui checks whether the resolved image model is already available locally and asks for confirmation before pulling a missing model.
 
 ### `roles`
 
@@ -244,7 +267,7 @@ Custom roles defined in `workspace/roles/` are also resolved here.
 }
 ```
 
-**Resolution priority**: role file `model` field > `agents.defaults.roles` mapping > primary model.
+**Resolution priority**: role file `model` field > `agents.defaults.roles` mapping (for example `agents.defaults.roles.orchestrator`) > primary model.
 
 ### `workspace`
 
@@ -376,6 +399,26 @@ Controls whether the `sudo` command is permitted. Defaults to `false` (sudo is b
 
 > **`exec` `cwd` parameter** — the `exec` tool accepts an optional `cwd` argument. Relative paths are resolved from the default working directory (project root). If the path does not exist or is not a directory, the tool returns an error.
 
+### `shell`
+
+Two safety switches for the `exec` shell tool. Both default to `true`, and both apply even with `--auto-approve` or `--unsafe`. Turning either off weakens Coqui's sandbox, so leave them on unless you have a specific reason.
+
+| Key | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `sandboxWrites` | bool | `true` | Reject shell commands whose write targets (redirections such as `>` and `>>`, and the destinations of `cp`, `mv` and similar) resolve outside the workspace and the configured `mounts`. The agent is told about the sandbox in its tool description. |
+| `scrubEnvironment` | bool | `true` | Run shell subprocesses with a sanitized environment. Variables whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL` or `AUTH` are removed, so API keys loaded into Coqui do not leak into commands the agent runs. Common safe variables (`PATH`, `HOME`, locale, terminal, `GIT_*`, `COMPOSER_*`, `NODE_*`, `NPM_*`, `SSH_AUTH_SOCK`, `DOCKER_*` and similar) are always kept, and the safe list wins: a safe-prefixed variable is kept even when its name contains `TOKEN` or `AUTH`, so secrets such as `NPM_TOKEN`, `COMPOSER_AUTH`, `DOCKER_AUTH_CONFIG` or a `GIT_*` token still reach shell commands. |
+
+```json
+{
+    "shell": {
+        "sandboxWrites": true,
+        "scrubEnvironment": true
+    }
+}
+```
+
+These map to `agents.defaults.shell.sandboxWrites` and `agents.defaults.shell.scrubEnvironment`. The agent cannot change them through the `config` tool.
+
 ### `blacklist`
 
 Additional regex patterns to add to the catastrophic blacklist. These patterns block commands regardless of `--auto-approve` or `--unsafe` mode. The hardcoded patterns (`rm -rf /`, `shutdown`, fork bombs, etc.) cannot be removed.
@@ -388,6 +431,8 @@ Additional regex patterns to add to the catastrophic blacklist. These patterns b
     ]
 }
 ```
+
+Each entry must be a complete PHP regular expression, delimiters and flags included. A pattern that does not compile is silently dropped at load time and blocks nothing, so test new patterns (for example with `php -r 'var_dump(preg_match("/your-pattern/", ""));'`, which prints `int(0)` for a valid pattern and `bool(false)` for an invalid one) before relying on them.
 
 ### MCP configuration
 
@@ -481,6 +526,9 @@ Configure the memory system's embedding provider for semantic search.
 | --- | ---- | ----------- |
 | `embeddingModel` | string | Embedding provider in `provider/model` format |
 | `enabled` | bool | Set to `false` to disable memory embeddings entirely |
+| `autoExtract` | bool | Extract memories automatically after every turn (default `false`) |
+| `coreSummaryMaxTokens` | int | Token budget for the compressed core-memory summary in the system prompt (default `500`) |
+| `coreSummaryEntryLimit` | int | Maximum memories fetched when building the core summary (default `50`) |
 
 ```json
 {
@@ -503,7 +551,7 @@ Configure automatic conversation summarization behavior.
 | `autoSummarizeThreshold` | int/float | `64` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
 | `autoSummarizeTurnThreshold` | int | `32` | Number of user turns that triggers auto-summarization (used when mode is `"turn"`) |
 | `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
-| `keepRecentTurns` | int | `10` | Default turns preserved during on-demand summarization (`/summarize`) |
+| `keepRecentTurns` | int | `24` | Default turns preserved during on-demand summarization (`/summarize` and the `summarize_conversation` tool). A configured value is clamped to 1–20 for the per-iteration pruning safety net |
 | `budgetSafetyMarginPercent` | int | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |
 | `budgetExitThreshold` | float | `0.85` | Context window usage ratio (0.0–1.0) based on the latest provider-reported usage for the current iteration. When crossed, Coqui injects a wrap-up instruction and the agent has `budgetExitWrapUpIterations` iterations to call `done()` before it is force-exited. Set to `0.0` to disable |
 | `budgetExitWrapUpIterations` | int | `2` | Number of iterations the agent has to wrap up after the budget exit threshold is crossed. Must be ≥ 1 |
@@ -532,6 +580,60 @@ Regardless of mode, the per-iteration budget pruning strategy always runs as a s
 When `budgetExitThreshold` is set (default `0.85`), the agent monitors the latest provider-reported context usage for each iteration as a percentage of the effective context window. When usage crosses the threshold, php-agents emits a generic budget warning event and Coqui reacts by injecting a workflow-aware wrap-up instruction that preserves artifacts and project state. The agent then has `budgetExitWrapUpIterations` iterations to call `done()`. If it does not exit gracefully within that wrap-up window, the turn ends with a `budget_exhausted` finish reason.
 
 This budget-based exit complements `maxIterations`; it does not replace the iteration limit. A turn can still stop because the configured iteration cap was reached before or after any budget warning.
+
+### Tool loading budget
+
+These keys control how many tool schemas reach the model. The two budget keys can also be set per role as `agents.defaults.roles.<role>.toolkitTokenBudget` and `agents.defaults.roles.<role>.toolkitPromotionBudgetPercent`, which take precedence over the global value. `maxTools` is global only.
+
+| Key | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `maxTools` | int | `0` | Cap on the number of tools sent to the model. `0` means unlimited. `tool_search` is always kept. |
+| `toolkitTokenBudget` | int | `20000` | Token budget for non-system toolkit schemas. When the total exceeds it, toolkits are deferred and discovered through `tool_search`. |
+| `toolkitPromotionBudgetPercent` | int | `60` | Share of `toolkitTokenBudget` (0–100) used to promote frequently used auto-mode toolkits to eager loading. |
+
+Use `/budget` in the REPL or `GET /api/v1/server/budget` to see how the budget was applied.
+
+### `codeReview`
+
+Automated review of code written by spawned coder agents.
+
+| Key | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `enabled` | bool | `true` | Run the reviewer after coder child agents finish |
+| `maxRounds` | int | `2` | Maximum review-then-iterate rounds |
+| `autoIterate` | bool | `true` | Send the coder back to fix `NEEDS_CHANGES` verdicts automatically |
+
+### `editHistory`
+
+| Key | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `retentionDays` | int | `7` | Default age, in days, beyond which `edit_history(action: "prune")` removes edit-history entries and their undo backups when no `prune_days` is given. Must be a positive integer. |
+
+### `notifications`
+
+The notification inbox shown in the REPL and exposed to the agent. Invalid or out-of-range values fall back to the defaults.
+
+| Key | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `enabled` | bool | `true` | Enable the notification system |
+| `replDisplayLimit` | int | `5` | Notifications shown when the REPL is idle |
+| `promptInjectionLimit` | int | `10` | Notifications injected into an agent turn's context |
+| `retentionHours.informational` | int | `24` | Hours before informational notifications are pruned |
+| `retentionHours.actionable` | int | `72` | Hours before actionable notifications are pruned |
+| `automation.enabled` | bool | `true` | Process actionable notifications automatically in API mode |
+| `automation.processTickSeconds` | int | `10` | Seconds between processing ticks |
+| `automation.reclaimTickSeconds` | int | `30` | Seconds between reclaiming expired leases |
+| `automation.leaseSeconds` | int | `300` | Lease duration for a claimed notification |
+| `automation.batchSize` | int | `5` | Notifications processed per tick |
+| `automation.maxAttempts` | int | `3` | Attempts before a notification fails permanently |
+| `automation.retryDelaySeconds` | int | `60` | Delay before retrying after a recoverable failure |
+
+### Display: `hints` and `footer`
+
+| Key | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `hints` | bool | `true` | Show command hints in the REPL. `/hints` toggles it and saves the choice. |
+| `footer.backgroundTasks` | bool | `true` | Include active background tasks in the post-turn footer (REPL and the API `complete` event) |
 
 ## Model Providers (`models.providers`)
 
@@ -673,21 +775,70 @@ These config sections are part of the OpenClaw standard and work identically acr
 
 ### Coqui Extensions
 
-Coqui adds the following keys under `agents.defaults` that are specific to Coqui and safely ignored by other OpenClaw-compatible tools:
+Coqui adds the following keys under `agents.defaults` that are specific to Coqui and safely ignored by other OpenClaw-compatible tools. This is the complete list of keys Coqui reads; each links to its section above.
 
-| Key | Purpose |
-| --- | ------- |
-| `agents.defaults.workspace` | Workspace directory path |
-| `agents.defaults.mounts` | External directory mounts |
-| `agents.defaults.shellAllowedCommands` | Opt-in shell command allowlist (empty = open-by-default) |
-| `agents.defaults.allowSudo` | Allow `sudo` commands (default: `false`) |
-| `agents.defaults.maxIterations` | Agent iteration budget |
-| `agents.defaults.backgroundTaskMaxIterations` | Per-task background iteration cap |
-| `agents.defaults.blacklist` | Additional catastrophic blacklist patterns |
-| `agents.defaults.mcp.allowedStdioCommands` | Exact-match allowlist for stdio MCP server command tuples |
-| `agents.defaults.mcp.deniedStdioCommands` | Exact-match denylist for stdio MCP server command tuples |
-| `agents.defaults.memory` | Memory system configuration |
-| `api.*` | HTTP API server settings |
+| Key | Default | Purpose |
+| --- | ------- | ------- |
+| `agents.defaults.model.primary` | — | Primary model ([`model`](#model)) |
+| `agents.defaults.model.fallbacks` | `[]` | Fallback models |
+| `agents.defaults.model.utility` | see [resolution order](#model) | Model for internal tasks |
+| `agents.defaults.model.imageModel` | — | Default image model ([Image generation](#image-generation)) |
+| `agents.defaults.model.imageFallbacks` | `[]` | Image fallback models |
+| `agents.defaults.models` | `{}` | Per-model settings; an `alias` entry defines a short model name |
+| `agents.defaults.roles` | `{}` | Role-to-model mapping, e.g. `agents.defaults.roles.orchestrator` ([`roles`](#roles)) |
+| `agents.defaults.workspace` | `~/.coqui/.workspace` | Workspace directory path |
+| `agents.defaults.persona` | — | Default startup persona |
+| `agents.defaults.toolProfile` | `lean` | Tool profile preset |
+| `agents.defaults.coreToolkits` | profile preset | Toolkits always loaded eagerly |
+| `agents.defaults.mounts` | `[]` | External directory mounts |
+| `agents.defaults.maxIterations` | `256` | Agent iteration budget |
+| `agents.defaults.backgroundTaskMaxIterations` | `512` | Per-task background iteration cap |
+| `agents.defaults.emptyResponse.handling` | `nudge_then_fallback` | Policy for empty model turns |
+| `agents.defaults.emptyResponse.maxRetries` | `2` | Corrective retries for empty turns |
+| `agents.defaults.shellAllowedCommands` | `[]` | Opt-in shell command allowlist (empty = open-by-default) |
+| `agents.defaults.allowSudo` | `false` | Allow `sudo` commands |
+| `agents.defaults.shell.sandboxWrites` | `true` | Confine shell writes to workspace and mounts ([`shell`](#shell)) |
+| `agents.defaults.shell.scrubEnvironment` | `true` | Strip secrets from shell subprocess environments |
+| `agents.defaults.blacklist` | `[]` | Additional catastrophic blacklist patterns |
+| `agents.defaults.mcp.allowedStdioCommands` | `[]` | Exact-match allowlist for stdio MCP server command tuples |
+| `agents.defaults.mcp.deniedStdioCommands` | `[]` | Exact-match denylist for stdio MCP server command tuples |
+| `agents.defaults.memory.enabled` | `true` | Memory embeddings on/off ([`memory`](#memory)) |
+| `agents.defaults.memory.embeddingModel` | auto-detected | Embedding provider |
+| `agents.defaults.memory.autoExtract` | `false` | Extract memories after every turn |
+| `agents.defaults.memory.coreSummaryMaxTokens` | `500` | Core-memory summary token budget |
+| `agents.defaults.memory.coreSummaryEntryLimit` | `50` | Memories fetched for the core summary |
+| `agents.defaults.context.autoSummarizeMode` | `token` | Summarization trigger ([`context`](#context)) |
+| `agents.defaults.context.autoSummarizeThreshold` | `64` | Token-usage percentage that triggers summarization |
+| `agents.defaults.context.autoSummarizeTurnThreshold` | `32` | Turn count that triggers summarization |
+| `agents.defaults.context.autoSummarizeKeepRecent` | `15` | Turns kept by auto-summarization |
+| `agents.defaults.context.keepRecentTurns` | `24` | Turns kept by `/summarize` |
+| `agents.defaults.context.conversationHistoryInSystemPrompt` | `false` | Also render history into the system prompt |
+| `agents.defaults.context.budgetSafetyMarginPercent` | `20` | Safety margin for budget pruning |
+| `agents.defaults.context.budgetExitThreshold` | `0.85` | Context usage that triggers wrap-up |
+| `agents.defaults.context.budgetExitWrapUpIterations` | `2` | Iterations allowed to wrap up |
+| `agents.defaults.maxTools` | `0` | Tool count cap, `0` = unlimited ([Tool loading budget](#tool-loading-budget)) |
+| `agents.defaults.toolkitTokenBudget` | `20000` | Token budget before toolkits are deferred |
+| `agents.defaults.toolkitPromotionBudgetPercent` | `60` | Share of the budget for promoting auto-mode toolkits |
+| `agents.defaults.codeReview.enabled` | `true` | Automated review of coder output ([`codeReview`](#codereview)) |
+| `agents.defaults.codeReview.maxRounds` | `2` | Review-then-iterate rounds |
+| `agents.defaults.codeReview.autoIterate` | `true` | Iterate automatically on `NEEDS_CHANGES` |
+| `agents.defaults.editHistory.retentionDays` | `7` | Edit history retention ([`editHistory`](#edithistory)) |
+| `agents.defaults.notifications.enabled` | `true` | Notification system on/off ([`notifications`](#notifications)) |
+| `agents.defaults.notifications.replDisplayLimit` | `5` | Notifications shown in the idle REPL |
+| `agents.defaults.notifications.promptInjectionLimit` | `10` | Notifications injected into a turn |
+| `agents.defaults.notifications.retentionHours.informational` | `24` | Informational notification retention |
+| `agents.defaults.notifications.retentionHours.actionable` | `72` | Actionable notification retention |
+| `agents.defaults.notifications.automation.enabled` | `true` | Automatic processing in API mode |
+| `agents.defaults.notifications.automation.processTickSeconds` | `10` | Processing tick interval |
+| `agents.defaults.notifications.automation.reclaimTickSeconds` | `30` | Lease reclaim interval |
+| `agents.defaults.notifications.automation.leaseSeconds` | `300` | Claim lease duration |
+| `agents.defaults.notifications.automation.batchSize` | `5` | Notifications per tick |
+| `agents.defaults.notifications.automation.maxAttempts` | `3` | Attempts before permanent failure |
+| `agents.defaults.notifications.automation.retryDelaySeconds` | `60` | Retry delay |
+| `agents.defaults.hints` | `true` | REPL command hints ([Display](#display-hints-and-footer)) |
+| `agents.defaults.footer.backgroundTasks` | `true` | Background tasks in the post-turn footer |
+| `images.*` | — | Image vendor settings ([Image generation](#image-generation)) |
+| `api.*` | — | HTTP API server settings |
 
 ### Drop-in Migration
 
