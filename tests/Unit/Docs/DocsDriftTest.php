@@ -111,6 +111,56 @@ it('documents every agents.defaults key the code reads in CONFIGURATION.md', fun
         ->and($missing)->toBe([]);
 });
 
+it('documents the code default for every agents.defaults key backed by CoquiDefaults', function () use ($projectRoot) {
+    // Constants in CoquiDefaults name the key they default in their docblock:
+    // "(config: agents.defaults.x.y)". Those are the code defaults.
+    $codeDefaults = [];
+    foreach ((new ReflectionClass(\CoquiBot\Coqui\Contract\CoquiDefaults::class))->getReflectionConstants() as $constant) {
+        if (preg_match('/config:\s*agents\.defaults\.([A-Za-z0-9_.]*[A-Za-z0-9_])/i', (string) $constant->getDocComment(), $m)) {
+            $codeDefaults[$m[1]] = $constant->getValue();
+        }
+    }
+    expect($codeDefaults)->not->toBe([]);
+
+    // The key reference table: "| `agents.defaults.x` | default | purpose |".
+    $doc = (string) file_get_contents($projectRoot . '/docs/CONFIGURATION.md');
+    preg_match_all('/^\|\s*`agents\.defaults\.([A-Za-z0-9_.]+)`\s*\|\s*([^|]+?)\s*\|/m', $doc, $rows, PREG_SET_ORDER);
+    $documented = [];
+    foreach ($rows as $row) {
+        $documented[$row[1]] = trim($row[2], " `");
+    }
+
+    $format = static fn (mixed $value): string => match (true) {
+        is_bool($value) => $value ? 'true' : 'false',
+        is_float($value) && floor($value) === $value => (string) (int) $value,
+        default => (string) $value,
+    };
+
+    // Keys the code actually reads (a default for an unread key documents nothing).
+    $read = [];
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($projectRoot . '/src', FilesystemIterator::SKIP_DOTS));
+    foreach ($files as $file) {
+        if ($file instanceof SplFileInfo && $file->getExtension() === 'php') {
+            preg_match_all('#[\'"]agents\.defaults\.([A-Za-z0-9_.]*[A-Za-z0-9_])#', (string) file_get_contents($file->getPathname()), $m);
+            $read += array_fill_keys($m[1], true);
+        }
+    }
+
+    $mismatches = [];
+    foreach ($codeDefaults as $key => $value) {
+        if (!isset($read[$key])) {
+            continue;
+        }
+        $expected = $format($value);
+        $actual = $documented[$key] ?? '(missing from the key table)';
+        if ($actual !== $expected) {
+            $mismatches[] = "agents.defaults.{$key}: documented {$actual}, code default {$expected}";
+        }
+    }
+
+    expect($mismatches)->toBe([]);
+});
+
 it('lists every registered API route in the API.md quick reference', function () use ($projectRoot) {
     $normalize = static fn (string $path): string => preg_replace('/\{[^}]+\}/', '{}', $path) ?? $path;
 
