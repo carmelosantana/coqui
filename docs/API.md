@@ -2509,7 +2509,7 @@ Capability-discovery document (the CAP `InstanceInfo` object). Clients read it o
   "models": [{ "id": "ollama/qwen3:latest", "context_window": 40960 }],
   "mcp": { "transports": ["stdio"] },
   "auth": { "required": true, "scheme": "bearer" },
-  "limits": { "max_page_size": 100, "max_payload_bytes": 10485760, "max_content_bytes": 10485760 },
+  "limits": { "max_page_size": 100, "max_payload_bytes": 52428800, "max_content_bytes": 52428800 },
   "api": { "base_path": "/api/v1", "api_major": "1" },
   "builtin_toolkits": ["shell", "fs", "web", "vision"],
   "schedules": { "dialect": "posix-5field" }

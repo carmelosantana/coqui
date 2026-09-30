@@ -120,7 +120,7 @@ The simplest valid config only needs a primary model:
                 "autoSummarizeThreshold": 64,
                 "autoSummarizeTurnThreshold": 20,
                 "autoSummarizeKeepRecent": 15,
-                "keepRecentTurns": 10,
+                "keepRecentTurns": 24,
                 "budgetSafetyMarginPercent": 20,
                 "budgetExitThreshold": 0.85,
                 "budgetExitWrapUpIterations": 2
@@ -406,7 +406,7 @@ Two safety switches for the `exec` shell tool. Both default to `true`, and both 
 | Key | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
 | `sandboxWrites` | bool | `true` | Reject shell commands whose write targets (redirections such as `>` and `>>`, and the destinations of `cp`, `mv` and similar) resolve outside the workspace and the configured `mounts`. The agent is told about the sandbox in its tool description. |
-| `scrubEnvironment` | bool | `true` | Run shell subprocesses with a sanitized environment. Variables whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL` or `AUTH` are removed, so API keys loaded into Coqui do not leak into commands the agent runs. Common safe variables (`PATH`, `HOME`, locale, terminal, `GIT_*`, `COMPOSER_*`, `NODE_*`, `SSH_AUTH_SOCK`, `DOCKER_*` and similar) are always kept. |
+| `scrubEnvironment` | bool | `true` | Run shell subprocesses with a sanitized environment. Variables whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL` or `AUTH` are removed, so API keys loaded into Coqui do not leak into commands the agent runs. Common safe variables (`PATH`, `HOME`, locale, terminal, `GIT_*`, `COMPOSER_*`, `NODE_*`, `NPM_*`, `SSH_AUTH_SOCK`, `DOCKER_*` and similar) are always kept, and the safe list wins: a safe-prefixed variable is kept even when its name contains `TOKEN` or `AUTH`, so secrets such as `NPM_TOKEN`, `COMPOSER_AUTH`, `DOCKER_AUTH_CONFIG` or a `GIT_*` token still reach shell commands. |
 
 ```json
 {
@@ -551,7 +551,7 @@ Configure automatic conversation summarization behavior.
 | `autoSummarizeThreshold` | int/float | `64` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
 | `autoSummarizeTurnThreshold` | int | `32` | Number of user turns that triggers auto-summarization (used when mode is `"turn"`) |
 | `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
-| `keepRecentTurns` | int | `10` | Default turns preserved during on-demand summarization (`/summarize`) |
+| `keepRecentTurns` | int | `24` | Default turns preserved during on-demand summarization (`/summarize` and the `summarize_conversation` tool). A configured value is clamped to 1–20 for the per-iteration pruning safety net |
 | `budgetSafetyMarginPercent` | int | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |
 | `budgetExitThreshold` | float | `0.85` | Context window usage ratio (0.0–1.0) based on the latest provider-reported usage for the current iteration. When crossed, Coqui injects a wrap-up instruction and the agent has `budgetExitWrapUpIterations` iterations to call `done()` before it is force-exited. Set to `0.0` to disable |
 | `budgetExitWrapUpIterations` | int | `2` | Number of iterations the agent has to wrap up after the budget exit threshold is crossed. Must be ≥ 1 |
@@ -583,7 +583,7 @@ This budget-based exit complements `maxIterations`; it does not replace the iter
 
 ### Tool loading budget
 
-These keys control how many tool schemas reach the model. All three can also be set per role as `agents.defaults.roles.<role>.toolkitTokenBudget` and `agents.defaults.roles.<role>.toolkitPromotionBudgetPercent`, which take precedence over the global value.
+These keys control how many tool schemas reach the model. The two budget keys can also be set per role as `agents.defaults.roles.<role>.toolkitTokenBudget` and `agents.defaults.roles.<role>.toolkitPromotionBudgetPercent`, which take precedence over the global value. `maxTools` is global only.
 
 | Key | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
@@ -781,7 +781,7 @@ Coqui adds the following keys under `agents.defaults` that are specific to Coqui
 | --- | ------- | ------- |
 | `agents.defaults.model.primary` | — | Primary model ([`model`](#model)) |
 | `agents.defaults.model.fallbacks` | `[]` | Fallback models |
-| `agents.defaults.model.utility` | primary | Model for internal tasks |
+| `agents.defaults.model.utility` | see [resolution order](#model) | Model for internal tasks |
 | `agents.defaults.model.imageModel` | — | Default image model ([Image generation](#image-generation)) |
 | `agents.defaults.model.imageFallbacks` | `[]` | Image fallback models |
 | `agents.defaults.models` | `{}` | Per-model settings; an `alias` entry defines a short model name |
@@ -811,7 +811,7 @@ Coqui adds the following keys under `agents.defaults` that are specific to Coqui
 | `agents.defaults.context.autoSummarizeThreshold` | `64` | Token-usage percentage that triggers summarization |
 | `agents.defaults.context.autoSummarizeTurnThreshold` | `32` | Turn count that triggers summarization |
 | `agents.defaults.context.autoSummarizeKeepRecent` | `15` | Turns kept by auto-summarization |
-| `agents.defaults.context.keepRecentTurns` | `10` | Turns kept by `/summarize` |
+| `agents.defaults.context.keepRecentTurns` | `24` | Turns kept by `/summarize` |
 | `agents.defaults.context.conversationHistoryInSystemPrompt` | `false` | Also render history into the system prompt |
 | `agents.defaults.context.budgetSafetyMarginPercent` | `20` | Safety margin for budget pruning |
 | `agents.defaults.context.budgetExitThreshold` | `0.85` | Context usage that triggers wrap-up |

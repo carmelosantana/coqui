@@ -124,10 +124,10 @@ cd coqui
 composer install
 ```
 
-Alternatively, use the `--dev` flag with the installer to clone and set up in one step:
+Alternatively, let the installer clone and set up in one step. `--dev` applies only to the native install path; when Docker is available the installer sets up the Docker stack and ignores `--dev` unless you also pass `--native`:
 
 ```bash
-./install.sh --dev
+./install.sh --dev --native
 ```
 
 ## Quick Start
