@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://agentcoqui.com/">Website</a> ·
-  <a href="https://agentcoqui.com/docs">Docs</a> ·
+  <a href="https://docs.agentcoqui.com">Docs</a> ·
   <a href="https://agentcoqui.com">Toolkits</a> ·
   <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
 </p>
@@ -52,9 +52,9 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 ## Features
 
 - 🤖 [**Multi-Model Orchestration**](docs/FEATURES.md#multi-model-orchestration) — route tasks to the right model with automatic failover
-- 🔀 [**Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, researcher, planner, reviewer, muse, philosopher) with role-appropriate models
+- 🔀 [**Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, explorer, plan, reviewer, muse, philosopher) with role-appropriate models
 - 🧠 [**Memory Persistence**](docs/FEATURES.md#memory-persistence) — cross-session memory with SQLite, FTS5, and optional vector embeddings
-- 📦 [**Runtime Extensibility**](docs/FEATURES.md#runtime-extensibility) — install Composer toolkits at runtime; browse [coqui.space](https://agentcoqui.com)
+- 📦 [**Runtime Extensibility**](docs/FEATURES.md#runtime-extensibility) — install Composer toolkits at runtime; browse [agentcoqui.com](https://agentcoqui.com)
 - 🔐 [**Credential Management**](docs/FEATURES.md#credential-management) — declarative `.env`-based secrets with hot-reload and automatic guards
 - 📋 [**Skills System**](docs/FEATURES.md#skills-system) — teach Coqui any workflow with plain Markdown files — no code required
 - ⏰ [**Scheduled Tasks**](docs/FEATURES.md#scheduled-tasks) — cron-style automation with circuit breakers
@@ -163,7 +163,7 @@ If a previous session left stale Coqui processes behind, run:
 `cleanup` only targets stale or conflicting Coqui-owned processes for this checkout. It does not blindly kill unrelated PHP processes.
 
 ```txt
- Coqui v0.1.0
+ Coqui v0.0.33
 
  Session  a3f8b2c1
  Model    ollama/glm-4.7-flash:latest

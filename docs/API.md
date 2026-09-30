@@ -1818,7 +1818,40 @@ App-facing alias for `GET /api/v1/config/roles/{name}`.
 }
 ```
 
-Role creation, updates, and deletion are REPL-only operations in the current API design.
+#### `PUT /api/v1/roles/{name}`
+
+Create or update a custom role file (`workspace/roles/{name}.md`). Like the loop definition write path, it branches on optimistic-concurrency precondition headers, and a precondition is mandatory:
+
+- `If-None-Match: *` — **create**; fails with `409 conflict` if the role already exists.
+- `If-Match: <version>` — **update**; fails with `409 version_conflict` if the stored `version` differs, or `404 role_not_found` if the role does not exist.
+- neither header — `409 conflict` (a precondition is required).
+
+**Request**
+
+```json
+{
+  "name": "researcher",
+  "access_level": "readonly",
+  "model": "openai/gpt-4.1",
+  "toolkits": ["web"],
+  "max_iterations": 40,
+  "instructions": "You research topics and cite sources."
+}
+```
+
+`name` and `access_level` are required. `model`, `toolkits`, `max_iterations`, `gate` and `instructions` are optional. The server owns `version`, so a body carrying `version` or `id` is rejected.
+
+**Response `201`** (create) or `200` (update) — the stored role (`name`, `access_level`, `version`, `model`, `toolkits`, `max_iterations`).
+
+**Errors**
+
+- `422 validation_error` — invalid `{name}`, an invalid body, or a body carrying a server-owned field.
+- `409 role_reserved` — `{name}` is a system or reserved role name.
+- `409 role_builtin` — `{name}` is a built-in role shipped with Coqui.
+- `409 conflict` — the role already exists (on create), or no precondition header was supplied.
+- `409 version_conflict` — the `If-Match` version does not match the stored one.
+
+Deleting roles remains a REPL-only operation.
 
 #### `GET /api/v1/config/personas`
 
@@ -2458,6 +2491,34 @@ Runtime information including version, uptime, memory usage, and active workload
 ```
 
 The `tasks` field is only present when the background task manager is enabled.
+
+#### `GET /api/v1/server/instance`
+
+Capability-discovery document (the CAP `InstanceInfo` object). Clients read it once at connect time to learn which protocol profiles, transport bindings, models and limits this instance offers, instead of probing individual endpoints.
+
+**Response `200`**
+
+```json
+{
+  "protocol_version": "0.5.0",
+  "name": "coqui",
+  "profiles": ["artifacts", "questions", "skills", "schedules", "mcp", "remote"],
+  "bindings": ["in-process", "http-sse"],
+  "persona_count": 3,
+  "default_model": "ollama/qwen3:latest",
+  "models": [{ "id": "ollama/qwen3:latest", "context_window": 40960 }],
+  "mcp": { "transports": ["stdio"] },
+  "auth": { "required": true, "scheme": "bearer" },
+  "limits": { "max_page_size": 100, "max_payload_bytes": 10485760, "max_content_bytes": 10485760 },
+  "api": { "base_path": "/api/v1", "api_major": "1" },
+  "builtin_toolkits": ["shell", "fs", "web", "vision"],
+  "schedules": { "dialect": "posix-5field" }
+}
+```
+
+`protocol_version`, `profiles` and `bindings` are always present. Optional fields are omitted when their source is unavailable. `auth` is omitted entirely, and the `remote` profile is not advertised, when the server runs without an API key. `profiles` is an open set, so clients should ignore profile names they do not recognize. Each `models` entry carries the model's `id`, `display_name`, `context_window`, `max_output_tokens`, `tokenizer_hint` and `capabilities`; the example is abbreviated.
+
+Returns `500 internal_error` when instance discovery is unavailable in the current environment.
 
 #### `POST /api/v1/server/restart`
 
@@ -4443,6 +4504,55 @@ When `session_id` is omitted, prompt inspection renders the static role/persona/
 | `budget` | object | Full prompt budget snapshot, including prompt sections and loading decisions |
 | `prompt_sources` | object | File, folder, and synthetic-source breakdown for prompt token usage |
 
+#### `GET /api/v1/server/budget`
+
+Return the prompt and toolkit budget preview the `/budget` REPL command renders: how many tokens the system prompt and tool schemas cost, which toolkits were loaded eagerly or deferred, and how each prompt section fared against the budget.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `role` | string | Preview the budget for a specific role (default: orchestrator) |
+| `persona` | string | Preview the budget with a specific persona applied |
+| `session_id` | string | Make the preview session-aware (active project, conversation history section) |
+
+**Response `200`** — top-level fields:
+
+| Field | Description |
+|-------|-------------|
+| `role`, `model` | The role and model the preview was built for |
+| `tool_count`, `toolkit_count` | Number of tools and toolkits in the assembled agent |
+| `prompt_tokens`, `tool_tokens`, `total_tokens` | Estimated token cost of the system prompt, the tool schemas, and both |
+| `toolkit_breakdown` | Per-toolkit token cost |
+| `prompt_sections` | Per-section inclusion decisions for the system prompt |
+| `applied_loading_modes`, `loading_decisions`, `deferred_toolkits`, `toolkit_budget` | How the toolkit token budget (`agents.defaults.toolkitTokenBudget`) was applied |
+| `context_window` | The effective context window, or `null` when unknown |
+
+Returns `500 internal_error` if the preview cannot be built.
+
+#### `GET /api/v1/sessions/{id}/budget`
+
+Budget breakdown for an existing session, in the CAP budget-observability shape. The session's stored role and persona are used, so the result matches what the agent sees on that session's next turn.
+
+**Response `200`**
+
+```json
+{
+  "sections": [
+    { "name": "Identity", "included": true, "estimated_tokens": 412, "priority": 0, "shed_reason": null },
+    { "name": "Conversation History", "included": false, "estimated_tokens": 0, "priority": 2, "shed_reason": "over_budget" }
+  ],
+  "total_estimated_tokens": 5120,
+  "model_context_window": 131072
+}
+```
+
+- `priority` is the shed rank: `0` critical (pinned), `1` workflow (pinned), `2` volatile (shed first), `3` unknown.
+- `estimated_tokens` is `0` for a section that was not included; `total_estimated_tokens` sums the included sections.
+- `model_context_window` falls back to `8192` when the model's context window is unknown.
+
+Returns `404 session_not_found` for an unknown session and `500 internal_error` if the breakdown cannot be built.
+
 #### `GET /api/v1/server/commands`
 
 Return the runtime slash-command catalog that powers REPL help output. This is the HTTP equivalent of `/help` for clients that want to expose command discovery or contextual help without scraping documentation.
@@ -4645,9 +4755,16 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/health` | No | Server liveness check |
 | `GET` | `/api/v1/sessions` | Yes | List sessions |
 | `POST` | `/api/v1/sessions` | Yes | Create session |
+| `POST` | `/api/v1/sessions/resolve` | Yes | Resolve the latest interactive session for a scope, or create one |
 | `GET` | `/api/v1/sessions/{id}` | Yes | Get session |
+| `GET` | `/api/v1/sessions/{id}/summary` | Yes | Compact dashboard view of a session |
 | `PATCH` | `/api/v1/sessions/{id}` | Yes | Update session metadata |
 | `DELETE` | `/api/v1/sessions/{id}` | Yes | Delete session |
+| `GET` | `/api/v1/sessions/{id}/members` | Yes | List group session members |
+| `PUT` | `/api/v1/sessions/{id}/members` | Yes | Replace the group session member list |
+| `POST` | `/api/v1/sessions/{id}/members` | Yes | Add a group session member |
+| `DELETE` | `/api/v1/sessions/{id}/members/{persona}` | Yes | Remove a group session member |
+| `GET` | `/api/v1/sessions/{id}/budget` | Yes | Prompt budget breakdown for a session (CAP budget shape) |
 | `GET` | `/api/v1/sessions/{id}/project` | Yes | Get the session active project |
 | `PATCH` | `/api/v1/sessions/{id}/project` | Yes | Set or clear the session active project |
 | `GET` | `/api/v1/sessions/{id}/messages` | Yes | List messages |
@@ -4661,12 +4778,19 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child runs |
 | `POST` | `/api/v1/sessions/{id}/child-runs` | Yes | Spawn a child run (gated: top-level full-access only; `202`, sync-execute) |
 | `GET` | `/api/v1/sessions/{id}/child-runs/{childRunId}` | Yes | Get a single child run |
+| `GET` | `/api/v1/sessions/{id}/child-runs/{childRunId}/events` | Yes | Stream a child run's lifecycle events (SSE) |
 | `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
 | `GET` | `/api/v1/config/context` | Yes | Get the supported app-facing context settings with defaults, metadata, and restart state |
 | `PATCH` | `/api/v1/config/context` | Yes | Update supported context settings such as `conversationHistoryInSystemPrompt` and auto-summarize controls |
 | `POST` | `/api/v1/config/validate` | Yes | Validate a candidate config payload |
 | `GET` | `/api/v1/config/roles` | Yes | List all roles |
 | `GET` | `/api/v1/config/roles/{name}` | Yes | Get role detail |
+| `GET` | `/api/v1/roles` | Yes | List selectable roles (app-facing alias of `/config/roles`) |
+| `GET` | `/api/v1/roles/{name}` | Yes | Get role detail (app-facing alias of `/config/roles/{name}`) |
+| `PUT` | `/api/v1/roles/{name}` | Yes | Create (If-None-Match: *) or update (If-Match: version) a custom role |
+| `GET` | `/api/v1/config/personas` | Yes | List personas for a picker |
+| `GET` | `/api/v1/config/personas/{name}` | Yes | Get one persona with picker policy details |
+| `GET` | `/api/v1/config/persona-preferences/schema` | Yes | Schema for the persona preferences editor |
 | `GET` | `/api/v1/config/models` | Yes | List available models |
 | `GET` | `/api/v1/personas` | Yes | List discovered personas for app pickers |
 | `GET` | `/api/v1/personas/{name}` | Yes | Get persona detail |
@@ -4694,6 +4818,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/projects/{idOrSlug}` | Yes | Get project detail |
 | `GET` | `/api/v1/server/stats` | Yes | Database and server statistics |
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
+| `GET` | `/api/v1/server/instance` | Yes | CAP `InstanceInfo` capability-discovery document |
 | `POST` | `/api/v1/server/restart` | Yes | Restart a launcher-managed API process |
 | `GET` | `/api/v1/server/commands` | Yes | Get runtime slash-command metadata (`/help` equivalent) |
 | `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt, optionally session-aware via `session_id` |
@@ -4726,8 +4851,12 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/schedules/{id}/enable` | Yes | Enable mutable schedule |
 | `POST` | `/api/v1/schedules/{id}/disable` | Yes | Disable mutable schedule |
 | `POST` | `/api/v1/schedules/{id}/trigger` | Yes | Force mutable schedule to run on next tick |
+| `GET` | `/api/v1/schedules/stats` | Yes | Aggregate schedule counts |
+| `GET` | `/api/v1/schedules/upcoming` | Yes | Enabled schedules due within a window |
+| `GET` | `/api/v1/schedules/{id}/runs` | Yes | Recent background task runs for a schedule |
 | `POST` | `/api/v1/loops` | Yes | Create and start a loop |
 | `GET` | `/api/v1/loops` | Yes | List loops |
+| `GET` | `/api/v1/loops/active/count` | Yes | Number of running loops |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
 | `GET` | `/api/v1/loops/definitions/{name}` | Yes | Get one loop definition (with version) |
 | `PUT` | `/api/v1/loops/definitions/{name}` | Yes | Create (If-None-Match: *) or update (If-Match: version) a loop definition |
@@ -4735,6 +4864,10 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
 | `PATCH` | `/api/v1/loops/{id}` | Yes | Update editable loop fields |
 | `DELETE` | `/api/v1/loops/{id}` | Yes | Delete a terminal loop |
+| `GET` | `/api/v1/loops/{id}/live` | Yes | Poll-friendly snapshot of an in-flight loop |
+| `GET` | `/api/v1/loops/{id}/events` | Yes | Stream loop progress nudges (SSE) |
+| `GET` | `/api/v1/loops/{id}/history` | Yes | Full iteration timeline with stage results |
+| `GET` | `/api/v1/loops/{id}/metrics` | Yes | Aggregate loop counts and timings |
 | `POST` | `/api/v1/loops/{id}/pause` | Yes | Pause a running loop |
 | `POST` | `/api/v1/loops/{id}/resume` | Yes | Resume a paused loop |
 | `POST` | `/api/v1/loops/{id}/stop` | Yes | Cancel a running or paused loop |

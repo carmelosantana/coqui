@@ -85,7 +85,7 @@ The `extra.php-agents` section is what makes a package a toolkit:
     },
     "require": {
         "php": "^8.4",
-        "carmelosantana/php-agents": "^0.2 || @dev"
+        "carmelosantana/php-agents": "^0.15 || @dev"
     },
     "extra": {
         "php-agents": {
@@ -198,7 +198,7 @@ mkdir -p workspace/packages/my-toolkit/src
     },
     "require": {
         "php": "^8.4",
-        "carmelosantana/php-agents": "^0.2 || @dev"
+        "carmelosantana/php-agents": "^0.15 || @dev"
     },
     "extra": {
         "php-agents": {
@@ -446,7 +446,7 @@ Add dependencies to the `require` section of your toolkit's `composer.json`:
 {
     "require": {
         "php": "^8.4",
-        "carmelosantana/php-agents": "^0.2 || @dev",
+        "carmelosantana/php-agents": "^0.15 || @dev",
         "guzzlehttp/guzzle": "^7.0",
         "symfony/http-client": "^7.0"
     }
@@ -896,7 +896,7 @@ Key patterns demonstrated:
 - Structured JSON output formatting
 - Error handling with HTTP status codes
 
-See the [Brave Search README](https://github.com/coquibot/coqui-toolkit-brave-search) for full details.
+See the [Brave Search README](https://github.com/carmelosantana/coqui-toolkit-brave-search) for full details.
 
 ### MCP Management Toolkit
 

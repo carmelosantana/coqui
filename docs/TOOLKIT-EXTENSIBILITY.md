@@ -138,10 +138,12 @@ Add `coquibot/coqui` to your toolkit's `composer.json` `require` section for the
 ```json
 {
     "require": {
-        "coquibot/coqui": "^0.0.28"
+        "coquibot/coqui": "^0.0.33"
     }
 }
 ```
+
+Match the constraint to the Coqui release you build against. While Coqui is on `0.0.x`, a caret constraint such as `^0.0.33` allows only that exact release, so raise it when you upgrade Coqui.
 
 A lighter `coquibot/coqui-contracts` package is a reasonable future extraction if third-party toolkit development grows, but Coqui currently keeps these REPL contracts in the main package because the toolkits are still co-developed together.
 

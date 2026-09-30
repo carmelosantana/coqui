@@ -1,18 +1,19 @@
 # Hello Toolkit
 
-A minimal reference toolkit for [Coqui](https://github.com/coquibot/coqui) that demonstrates how to create custom toolkits. Use this as a starting point for building your own.
+A minimal reference toolkit for [Coqui](https://github.com/carmelosantana/coqui) that demonstrates how to create custom toolkits. Use this as a starting point for building your own.
 
 ## Requirements
 
 - PHP 8.4+
-- [Coqui](https://github.com/coquibot/coqui)
+- [Coqui](https://github.com/carmelosantana/coqui)
 
 ## Installation
 
-Add the example as a path repository in your workspace `composer.json`, then require it:
+This example is not published on Packagist. Install it from a local checkout by adding it as a path repository in your workspace `composer.json`, then requiring it at `@dev`:
 
 ```bash
-composer require coquibot/hello-toolkit
+composer config repositories.hello-toolkit path /path/to/coqui/examples/hello-toolkit
+composer require coquibot/hello-toolkit:@dev
 ```
 
 When installed alongside Coqui, the toolkit is **auto-discovered** via `extra.php-agents.toolkits` — no manual registration needed.
@@ -63,7 +64,7 @@ See the [Toolkit Development Guide](../../docs/TOOLKITS.md) for a comprehensive 
 1. Copy this directory
 2. Update `composer.json` with your package name, namespace, and dependencies
 3. Rename and modify `src/HelloToolkit.php` to implement your tools
-4. Install into Coqui with `composer require`
+4. Publish it to Packagist, or install it from a path repository as shown above, then `composer require` it
 
 ## License
 
