@@ -164,6 +164,7 @@ final readonly class FileSystemOperations
     {
         $path = $this->resolvePath($relativePath);
         $this->guardReadOnly($path, $relativePath);
+        $this->guardWriteProtected($path, $relativePath);
 
         $dir = dirname($path);
         if (!is_dir($dir)) {
@@ -211,6 +212,7 @@ final readonly class FileSystemOperations
     {
         $path = $this->resolvePath($relativePath);
         $this->guardReadOnly($path, $relativePath);
+        $this->guardWriteProtected($path, $relativePath);
 
         $dir = dirname($path);
         if (!is_dir($dir)) {
@@ -234,6 +236,7 @@ final readonly class FileSystemOperations
     {
         $path = $this->resolvePath($relativePath);
         $this->guardReadOnly($path, $relativePath);
+        $this->guardWriteProtected($path, $relativePath);
 
         if (!file_exists($path)) {
             throw FileSystemException::fileNotFound($relativePath);
@@ -257,6 +260,7 @@ final readonly class FileSystemOperations
     {
         $path = $this->resolvePath($relativePath);
         $this->guardReadOnly($path, $relativePath);
+        $this->guardWriteProtected($path, $relativePath);
 
         if (is_dir($path)) {
             return; // Already exists
@@ -286,6 +290,7 @@ final readonly class FileSystemOperations
         $dstPath = $this->resolvePath($destination);
         $this->guardReadOnly($dstPath, $destination);
         $this->guardSecretContainer($srcPath, $source);
+        $this->guardWriteProtectedContainer($dstPath, $destination);
 
         if (!file_exists($srcPath)) {
             throw FileSystemException::fileNotFound($source);
@@ -319,6 +324,8 @@ final readonly class FileSystemOperations
         $this->guardReadOnly($srcPath, $source);
         $this->guardReadOnly($dstPath, $destination);
         $this->guardSecretContainer($srcPath, $source);
+        $this->guardWriteProtectedContainer($srcPath, $source);
+        $this->guardWriteProtectedContainer($dstPath, $destination);
 
         if (!file_exists($srcPath)) {
             throw FileSystemException::fileNotFound($source);
@@ -819,6 +826,35 @@ final readonly class FileSystemOperations
     /**
      * @throws FileSystemException If copying or moving $absolutePath would carry a secret along.
      */
+    private function guardWriteProtectedContainer(string $absolutePath, string $displayPath): void
+    {
+        $relative = $this->rootRelative($absolutePath);
+        if ($relative !== null && ProtectedWorkspacePaths::containsWriteProtected($relative)) {
+            throw FileSystemException::protectedPath($displayPath);
+        }
+    }
+
+    /**
+     * @throws FileSystemException If $absolutePath is a write-protected control file.
+     */
+    private function guardWriteProtected(string $absolutePath, string $displayPath): void
+    {
+        if ($this->isWriteProtectedPath($absolutePath)) {
+            throw FileSystemException::protectedPath($displayPath);
+        }
+    }
+
+    /**
+     * True when $absolutePath (after resolving symlinks) is write-protected
+     * under the sandbox root — see ProtectedWorkspacePaths.
+     */
+    public function isWriteProtectedPath(string $absolutePath): bool
+    {
+        $relative = $this->rootRelative($absolutePath);
+
+        return $relative !== null && ProtectedWorkspacePaths::isWriteProtected($relative);
+    }
+
     private function guardSecretContainer(string $absolutePath, string $displayPath): void
     {
         $relative = $this->rootRelative($absolutePath);

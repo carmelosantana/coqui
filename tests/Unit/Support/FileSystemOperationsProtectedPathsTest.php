@@ -96,3 +96,54 @@ test('ordinary files beside the secrets stay readable and writable', function ()
     expect($this->fs->read('data/notes.json'))->toBe('{"ok":true}')
         ->and($this->fs->read('.env.example'))->toBe('OPENAI_API_KEY=');
 });
+
+// ---------------------------------------------------------------
+// #7 — control files stay readable but not writable
+// ---------------------------------------------------------------
+
+test('control files cannot be written, appended to, deleted or replaced', function (string $path) {
+    is_dir(dirname($this->root . '/' . $path)) || mkdir(dirname($this->root . '/' . $path), 0755, true);
+    file_put_contents($this->root . '/' . $path, 'original');
+
+    expect(fn() => $this->fs->write($path, 'pwned'))->toThrow(FileSystemException::class, 'protected');
+    expect(fn() => $this->fs->append($path, 'pwned'))->toThrow(FileSystemException::class, 'protected');
+    expect(fn() => $this->fs->delete($path))->toThrow(FileSystemException::class, 'protected');
+    file_put_contents($this->root . '/scratch.txt', 'pwned');
+    expect(fn() => $this->fs->copyPath('scratch.txt', $path))->toThrow(FileSystemException::class, 'protected');
+    expect(fn() => $this->fs->movePath('scratch.txt', $path))->toThrow(FileSystemException::class, 'protected');
+
+    expect(file_get_contents($this->root . '/' . $path))->toBe('original');
+    expect($this->fs->read($path))->toBe('original');
+})->with([
+    'vendor autoloader' => 'vendor/autoload.php',
+    'vendor package file' => 'vendor/acme/pkg/src/Thing.php',
+    'mcp.json' => 'mcp.json',
+    'role definition' => 'roles/coder.md',
+]);
+
+test('new files cannot be created under vendor or roles', function () {
+    expect(fn() => $this->fs->write('vendor/evil.php', '<?php'))->toThrow(FileSystemException::class, 'protected');
+    expect(fn() => $this->fs->write('roles/evil.md', '---'))->toThrow(FileSystemException::class, 'protected');
+    expect(fn() => $this->fs->createDir('vendor/acme'))->toThrow(FileSystemException::class, 'protected');
+});
+
+test('control directories cannot be replaced, moved or deleted wholesale', function () {
+    mkdir($this->root . '/roles', 0755, true);
+    file_put_contents($this->root . '/roles/coder.md', 'original');
+    mkdir($this->root . '/staging', 0755, true);
+    file_put_contents($this->root . '/staging/coder.md', 'pwned');
+
+    expect(fn() => $this->fs->copyPath('staging', 'roles'))->toThrow(FileSystemException::class, 'protected');
+    expect(fn() => $this->fs->movePath('roles', 'old-roles'))->toThrow(FileSystemException::class, 'protected');
+    expect(fn() => $this->fs->movePath('staging', 'vendor'))->toThrow(FileSystemException::class, 'protected');
+
+    expect(file_get_contents($this->root . '/roles/coder.md'))->toBe('original');
+});
+
+test('ordinary markdown and json files are still writable', function () {
+    $this->fs->write('notes/roles.md', '# roles');
+    $this->fs->write('docs/mcp.json', '{}');
+
+    expect($this->fs->read('notes/roles.md'))->toBe('# roles')
+        ->and($this->fs->read('docs/mcp.json'))->toBe('{}');
+});

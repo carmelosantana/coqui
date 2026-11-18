@@ -74,3 +74,32 @@ test('exec still allows a mention of .env inside unrelated text', function () {
 
     expect($result->status)->toBe(ToolResultStatus::Success);
 });
+
+// ---------------------------------------------------------------
+// #7 — exec cannot write Coqui's control files
+// ---------------------------------------------------------------
+
+test('exec refuses to write a control file', function (string $command, bool $sandboxWrites = true) {
+    mkdir($this->workDir . '/vendor', 0755, true);
+    mkdir($this->workDir . '/roles', 0755, true);
+    file_put_contents($this->workDir . '/vendor/autoload.php', '<?php // original');
+    file_put_contents($this->workDir . '/roles/coder.md', 'original');
+    file_put_contents($this->workDir . '/mcp.json', '{}');
+
+    $toolkit = new ShellToolkit(workDir: $this->workDir, rootPath: $this->workDir, sandboxWrites: $sandboxWrites);
+    $result = $toolkit->tools()[0]->execute(['command' => $command]);
+
+    expect($result->status)->toBe(ToolResultStatus::Error)
+        ->and($result->content)->toContain('protected')
+        ->and(file_get_contents($this->workDir . '/vendor/autoload.php'))->toBe('<?php // original')
+        ->and(file_get_contents($this->workDir . '/roles/coder.md'))->toBe('original')
+        ->and(file_get_contents($this->workDir . '/mcp.json'))->toBe('{}');
+})->with([
+    'redirect into vendor' => ['echo "<?php system(1);" > vendor/autoload.php'],
+    'append to a role' => ['echo "access_level: full" >> roles/coder.md'],
+    'noclobber override' => ['echo "{}" >| mcp.json'],
+    'tee' => ['echo "{}" | tee mcp.json'],
+    'cp over a role' => ['cp notes.txt roles/coder.md'],
+    'cd then redirect' => ['cd vendor && echo x > autoload.php'],
+    'with sandboxWrites off' => ['echo x > mcp.json', false],
+]);
