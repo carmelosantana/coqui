@@ -131,6 +131,32 @@ test('startLoop applies max_iterations override', function () {
     expect((int) $loop['max_iterations'])->toBe(3);
 });
 
+test('startLoop caps a huge max_iterations override at the loop ceiling', function () {
+    $loopId = $this->executor->startLoop(
+        $this->harnessDefinition,
+        'Run forever',
+        $this->sessionId,
+        maxIterationsOverride: 100000,
+    );
+
+    $loop = $this->loopStore->getLoop($loopId);
+    expect((int) $loop['max_iterations'])->toBe(\CoquiBot\Coqui\Contract\CoquiDefaults::LOOP_MAX_ITERATIONS)
+        ->and(\CoquiBot\Coqui\Contract\CoquiDefaults::LOOP_MAX_ITERATIONS)->toBe(100);
+});
+
+test('startLoop caps a definition that asks for more than the loop ceiling', function () {
+    $def = [
+        'name' => 'iter-huge',
+        'description' => 'Iteration bound test',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 5000],
+    ];
+
+    $loopId = $this->executor->startLoop($def, 'Test goal');
+
+    expect((int) $this->loopStore->getLoop($loopId)['max_iterations'])->toBe(100);
+});
+
 test('startLoop creates project in project store', function () {
     $loopId = $this->executor->startLoop($this->harnessDefinition, 'Build feature');
 

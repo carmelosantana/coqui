@@ -188,3 +188,23 @@ test('the REPL policy gates full-access spawns but not read-only ones', function
     expect($policy->shouldExecute('spawn_agent', ['role' => 'coder', 'task' => 'x', 'access_level' => 'full']))->toBeString()
         ->and($policy->shouldExecute('spawn_agent', ['role' => 'explorer', 'task' => 'x']))->toBeTrue();
 });
+
+test('the REPL policy gates scheduling and loop tools', function (string $tool, array $args) {
+    $storage = new SessionStorage(':memory:');
+    $sessionId = $storage->createSession('orchestrator', 'test/model');
+    $factory = new ExecutionPolicyFactory(
+        new CatastrophicBlacklist(),
+        $storage,
+        new ToolkitDiscovery('/tmp', sys_get_temp_dir() . '/coqui-policy-' . bin2hex(random_bytes(4))),
+    );
+    $input = new ArrayInput([]);
+    $input->setInteractive(false);
+    $policy = $factory->buildInteractive($sessionId, new SymfonyStyle($input, new BufferedOutput()), autoApprove: false);
+
+    expect($policy->shouldExecute($tool, $args))->toBeString();
+})->with([
+    'schedule_create' => ['schedule_create', ['name' => 'x', 'cron' => '* * * * *', 'prompt' => 'run exec']],
+    'schedule_update' => ['schedule_update', ['id' => 'x', 'prompt' => 'run exec']],
+    'schedule_trigger' => ['schedule_trigger', ['id' => 'x']],
+    'loop_start' => ['loop_start', ['definition' => 'x', 'goal' => 'y']],
+]);

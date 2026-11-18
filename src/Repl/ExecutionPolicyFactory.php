@@ -26,12 +26,17 @@ final class ExecutionPolicyFactory
         'batch_replace' => ['*'],
         'composer' => ['add', 'remove', 'update', 'install'],
         'exec' => ['*'],
+        // Schedules and loops run later as auto-approved background turns.
+        'loop_start' => ['*'],
         'loop_stop' => ['*'],
         'move' => ['*'],
         'php_execute' => ['*'],
         'project_delete' => ['*'],
         'restart_coqui' => ['*'],
+        'schedule_create' => ['*'],
         'schedule_delete' => ['*'],
+        'schedule_trigger' => ['*'],
+        'schedule_update' => ['*'],
         // SpawnAgentTool re-checks with the resolved access level before it
         // starts a full-access child (shell, file writes, web).
         'spawn_agent' => [['access_level' => 'full']],
