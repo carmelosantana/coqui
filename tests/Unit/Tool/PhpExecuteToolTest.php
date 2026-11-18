@@ -277,3 +277,29 @@ test('runtime disable_functions blocks project root mutation attempts', function
     expect(file_exists($this->projectMutationProbe))->toBeFalse();
     expect($result->content)->toContain('file_put_contents');
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+test('runtime disable_functions blocks process execution reached through a variable function', function (string $fn) {
+    $result = $this->tool->execute([
+        'code' => sprintf(<<<'PHP'
+            $f = implode('', str_split('%s'));
+            try {
+                $out = $f('echo coqui-exec-marker');
+                echo is_string($out) ? $out : 'ran';
+            } catch (\Error $e) {
+                echo 'blocked';
+            }
+            PHP, $fn),
+    ]);
+
+    expect($result->content)->not->toContain('coqui-exec-marker')
+        ->and($result->content)->not->toContain('ran');
+})->with(['shell_exec', 'system', 'exec', 'passthru', 'popen'])
+  ->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+test('runtime disable_functions lists the process execution family', function () {
+    $result = $this->tool->execute(['code' => 'echo ini_get("disable_functions");']);
+
+    foreach (['exec', 'shell_exec', 'system', 'passthru', 'proc_open', 'popen', 'pcntl_exec', 'mail'] as $fn) {
+        expect($result->content)->toMatch('/\b' . $fn . '\b/');
+    }
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
