@@ -15,7 +15,7 @@
     "ext-pdo_sqlite": "*",
     "ext-xml": "*",
     "carmelosantana/coqui-toolkit-images": "^0.1",
-    "carmelosantana/php-agents": "^0.15.0",
+    "carmelosantana/php-agents": "dev-fix/anthropic-api-gaps",
     "carmelosantana/php-pathhelper": "^0.1",
     "coquibot/coqui-toolkit-mod-manager": "^0.1",
     "dragonmantank/cron-expression": "^3.0",
@@ -75,5 +75,10 @@
     "analyse": "phpstan analyse --memory-limit=512M"
   },
   "minimum-stability": "dev",
-  "prefer-stable": true
+  "prefer-stable": true,
+  "repositories": [{
+    "name": "php-agents",
+    "type": "vcs",
+    "url": "https://github.com/carmelosantana/php-agents"
+  }]
 }
