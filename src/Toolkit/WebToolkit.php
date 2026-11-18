@@ -37,9 +37,14 @@ final class WebToolkit implements ToolkitInterface
         private readonly ?SessionStorage $storage = null,
         private readonly ?string $parentSessionId = null,
         private readonly ?string $workspacePath = null,
+        ?\Closure $hostResolver = null,
     ) {
         $this->httpClient = $httpClient ?? HttpClient::create(['timeout' => self::DEFAULT_TIMEOUT_SECONDS]);
+        $this->hostResolver = $hostResolver ?? self::systemResolve(...);
     }
+
+    /** @var \Closure(string): list<string> Host name → IP addresses. Injectable for tests. */
+    private readonly \Closure $hostResolver;
 
     public function tools(): array
     {
@@ -384,6 +389,19 @@ final class WebToolkit implements ToolkitInterface
         $options['max_redirects'] = 0;
 
         for ($hop = 0; ; $hop++) {
+            // Resolve once, check, and pin the connection to that address so
+            // a second DNS answer (rebinding) cannot point it elsewhere.
+            unset($options['resolve']);
+            if (!$this->allowPrivateNetworks) {
+                $pin = $this->publicAddressFor($url);
+                if ($pin === null) {
+                    throw new \RuntimeException('Request blocked: URL resolves to a private or internal network address.');
+                }
+                if ($pin['host'] !== $pin['ip']) {
+                    $options['resolve'] = [$pin['host'] => $pin['ip']];
+                }
+            }
+
             $response = $this->requestWithRetries($method, $url, $options, $retries);
             $status = $response->getStatusCode();
             $location = $response->getHeaders(false)['location'][0] ?? null;
@@ -779,51 +797,114 @@ final class WebToolkit implements ToolkitInterface
      */
     private function isBlockedUrl(string $url): bool
     {
+        return $this->publicAddressFor($url) === null;
+    }
+
+    /**
+     * Resolve the URL's host and return it with the address to connect to,
+     * or null when the URL is malformed, unresolvable, a metadata name, or
+     * any of its addresses is private or internal.
+     *
+     * @return array{host: string, ip: string}|null
+     */
+    private function publicAddressFor(string $url): ?array
+    {
         $host = parse_url($url, PHP_URL_HOST);
-        if ($host === null || $host === false || $host === '') {
-            return true; // Malformed URL
+        if (!is_string($host) || $host === '') {
+            return null; // Malformed URL
         }
 
         // Strip brackets from IPv6 addresses
-        $host = trim($host, '[]');
+        $host = strtolower(trim($host, '[]'));
 
         // Block common metadata hostnames
-        $blockedHosts = ['metadata.google.internal', 'metadata', 'instance-data'];
-        if (in_array(strtolower($host), $blockedHosts, true)) {
-            return true;
+        if (in_array($host, ['metadata.google.internal', 'metadata', 'instance-data'], true)) {
+            return null;
         }
 
-        // Resolve hostname to IP addresses
-        $ips = gethostbynamel($host);
-        if ($ips === false) {
-            // Could also be an IPv6 address or unresolvable host
-            // Check if it's a raw IP address
-            if (filter_var($host, FILTER_VALIDATE_IP)) {
-                $ips = [$host];
-            } else {
-                return true; // Unresolvable
-            }
+        $ips = filter_var($host, FILTER_VALIDATE_IP) !== false ? [$host] : ($this->hostResolver)($host);
+        if ($ips === []) {
+            return null; // Unresolvable
         }
 
         foreach ($ips as $ip) {
             if ($this->isPrivateIp($ip)) {
+                return null;
+            }
+        }
+
+        return ['host' => $host, 'ip' => $ips[0]];
+    }
+
+    /**
+     * IPv4 (A) and IPv6 (AAAA) addresses for a host name.
+     *
+     * @return list<string>
+     */
+    private static function systemResolve(string $host): array
+    {
+        $ips = gethostbynamel($host) ?: [];
+
+        $records = @dns_get_record($host, DNS_AAAA);
+        foreach (is_array($records) ? $records : [] as $record) {
+            if (isset($record['ipv6']) && is_string($record['ipv6'])) {
+                $ips[] = $record['ipv6'];
+            }
+        }
+
+        return array_values(array_unique($ips));
+    }
+
+    /**
+     * Check if an IP address is private, internal or otherwise not public.
+     *
+     * Covers the IPv4 private, loopback, link-local, carrier-grade NAT,
+     * "this network" and multicast/reserved ranges; IPv6 loopback,
+     * unspecified, unique local (fc00::/7), link-local, site-local and
+     * multicast; and IPv6 forms that embed an IPv4 address (mapped
+     * ::ffff:0:0/96, compatible ::/96, NAT64 64:ff9b::/96, 6to4 2002::/16),
+     * which are judged by the embedded address.
+     */
+    private function isPrivateIp(string $ip): bool
+    {
+        $packed = @inet_pton($ip);
+        if ($packed === false) {
+            return true;
+        }
+
+        if (strlen($packed) === 16) {
+            $prefix = substr($packed, 0, 12);
+            $embedsIpv4 = $prefix === str_repeat("\0", 10) . "\xff\xff"
+                || $prefix === str_repeat("\0", 12)
+                || $prefix === "\x00\x64\xff\x9b" . str_repeat("\0", 8);
+            if ($embedsIpv4) {
+                return $this->isPrivateIp((string) inet_ntop(substr($packed, 12)));
+            }
+
+            if (substr($packed, 0, 2) === "\x20\x02") {
+                return $this->isPrivateIp((string) inet_ntop(substr($packed, 2, 4)));
+            }
+
+            $first = ord($packed[0]);
+            $second = ord($packed[1]);
+            if (($first & 0xfe) === 0xfc                       // fc00::/7 unique local
+                || ($first === 0xfe && ($second & 0x80) === 0x80) // fe80::/10 link-local, fec0::/10 site-local
+                || $first === 0xff                              // multicast
+            ) {
+                return true;
+            }
+        } else {
+            [$a, $b] = [ord($packed[0]), ord($packed[1])];
+            if ($a === 0                                   // 0.0.0.0/8
+                || ($a === 100 && ($b & 0xc0) === 64)       // 100.64.0.0/10 carrier-grade NAT
+                || $a >= 224                                // multicast and reserved
+            ) {
                 return true;
             }
         }
 
-        return false;
-    }
-
-    /**
-     * Check if an IP address falls within any blocked CIDR range.
-     */
-    private function isPrivateIp(string $ip): bool
-    {
-        // Quick check using PHP's built-in filter
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-            return true;
-        }
-
-        return false;
+        // PHP's own private and reserved ranges (10/8, 172.16/12, 192.168/16,
+        // 127/8, 169.254/16, ::1, ...).
+        return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
     }
 }
