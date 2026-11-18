@@ -285,6 +285,7 @@ final readonly class FileSystemOperations
         $srcPath = $this->resolvePath($source);
         $dstPath = $this->resolvePath($destination);
         $this->guardReadOnly($dstPath, $destination);
+        $this->guardSecretContainer($srcPath, $source);
 
         if (!file_exists($srcPath)) {
             throw FileSystemException::fileNotFound($source);
@@ -317,6 +318,7 @@ final readonly class FileSystemOperations
         $dstPath = $this->resolvePath($destination);
         $this->guardReadOnly($srcPath, $source);
         $this->guardReadOnly($dstPath, $destination);
+        $this->guardSecretContainer($srcPath, $source);
 
         if (!file_exists($srcPath)) {
             throw FileSystemException::fileNotFound($source);
@@ -427,6 +429,10 @@ final readonly class FileSystemOperations
             $subPath = substr($item->getPathname(), $srcLen + 1);
             $target = $dstPath . '/' . $subPath;
 
+            if ($this->isSecretPath($item->getPathname())) {
+                throw FileSystemException::protectedPath($srcDisplay . '/' . $subPath);
+            }
+
             if ($item->isDir()) {
                 if (!is_dir($target)) {
                     if (!@mkdir($target, CoquiDefaults::DIRECTORY_MODE, true)) {
@@ -491,7 +497,7 @@ final readonly class FileSystemOperations
 
         // Absolute path — validate directly against sandbox boundaries
         if ($this->isAbsolutePath($normalized)) {
-            return $this->resolveAbsolutePath($normalized, $relativePath);
+            return $this->guardSecret($this->resolveAbsolutePath($normalized, $relativePath), $relativePath);
         }
 
         // Relative path — canonicalize segments to prevent traversal
@@ -510,7 +516,7 @@ final readonly class FileSystemOperations
         $canonicalized = implode('/', $resolved);
         $path = rtrim($this->normalizePath($this->rootPath), '/') . '/' . $canonicalized;
 
-        return $this->validateResolvedPath($path, $relativePath);
+        return $this->guardSecret($this->validateResolvedPath($path, $relativePath), $relativePath);
     }
 
     /**
@@ -615,7 +621,7 @@ final readonly class FileSystemOperations
 
         return array_values(array_filter(
             $matches,
-            fn(string $path): bool => $this->isWithinSandbox($path),
+            fn(string $path): bool => $this->isWithinSandbox($path) && !$this->isSecretPath($path),
         ));
     }
 
@@ -663,7 +669,7 @@ final readonly class FileSystemOperations
                 $relativePath = $this->makeRelative($absolutePath);
 
                 if (fnmatch($pattern, $relativePath, FNM_PATHNAME)) {
-                    if ($this->isWithinSandbox($absolutePath)) {
+                    if ($this->isWithinSandbox($absolutePath) && !$this->isSecretPath($absolutePath)) {
                         $matches[] = $absolutePath;
                     }
                 }
@@ -796,6 +802,59 @@ final readonly class FileSystemOperations
         if ($this->isReadOnlyMountPath($absolutePath)) {
             throw FileSystemException::readOnlyMount($displayPath);
         }
+    }
+
+    /**
+     * @throws FileSystemException If $absolutePath is a protected secret.
+     */
+    private function guardSecret(string $absolutePath, string $displayPath): string
+    {
+        if ($this->isSecretPath($absolutePath)) {
+            throw FileSystemException::protectedPath($displayPath);
+        }
+
+        return $absolutePath;
+    }
+
+    /**
+     * @throws FileSystemException If copying or moving $absolutePath would carry a secret along.
+     */
+    private function guardSecretContainer(string $absolutePath, string $displayPath): void
+    {
+        $relative = $this->rootRelative($absolutePath);
+        if ($relative !== null && ProtectedWorkspacePaths::containsSecret($relative)) {
+            throw FileSystemException::protectedPath($displayPath);
+        }
+    }
+
+    private function isSecretPath(string $absolutePath): bool
+    {
+        $relative = $this->rootRelative($absolutePath);
+
+        return $relative !== null && ProtectedWorkspacePaths::isSecret($relative);
+    }
+
+    /**
+     * The path relative to the sandbox root after resolving symlinks (the
+     * parent's, when the path itself does not exist yet), or null when it
+     * lies outside the root (a mount).
+     */
+    private function rootRelative(string $absolutePath): ?string
+    {
+        $real = realpath($absolutePath);
+        if ($real === false) {
+            $parent = realpath(dirname($absolutePath));
+            $real = $parent !== false ? $parent . '/' . basename($absolutePath) : $absolutePath;
+        }
+
+        $real = $this->normalizePath($real);
+        foreach ([$this->realRoot, $this->normalizePath($this->rootPath)] as $base) {
+            if ($this->isWithinBasePath($real, $base)) {
+                return ltrim(substr($real, strlen(rtrim($base, '/'))), '/');
+            }
+        }
+
+        return null;
     }
 
     private function normalizePath(string $path): string

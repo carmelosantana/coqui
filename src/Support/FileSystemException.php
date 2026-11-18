@@ -49,6 +49,11 @@ final class FileSystemException extends \RuntimeException
         return new self(sprintf('Path escapes workspace boundary: %s', $path));
     }
 
+    public static function protectedPath(string $path): self
+    {
+        return new self(sprintf('Access denied: %s is a protected Coqui file (credentials or control state).', $path));
+    }
+
     public static function absolutePathNotInSandbox(string $path): self
     {
         return new self(sprintf('Absolute path is outside the workspace and not under any mount: %s', $path));
