@@ -698,7 +698,7 @@ final readonly class FileSystemOperations
 
         $real = $this->normalizePath($real);
 
-        return str_starts_with($real, $this->realRoot) || $this->isUnderAllowedPath($real);
+        return $this->isWithinBasePath($real, $this->realRoot) || $this->isUnderAllowedPath($real);
     }
 
     /**

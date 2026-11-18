@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Toolkit;
 
+use CarmeloSantana\PathHelper\PathHelper;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
@@ -35,6 +36,12 @@ final class ShellToolkit implements ToolkitInterface
         '/\bphp\s+-r\b/i',                                                         // php -r inline execution
         '/\bmkfifo\b/i',                                                            // Named pipe creation
         '/\b(nc|ncat|netcat)\s/i',                                                  // Network tools
+        // Inline code hides its writes from the write-target check
+        '/\b(ba|z|da|k|fi)?sh\s+(-[a-z]+\s+)*-[a-z]*c[a-z]*\b/i',                  // sh -c, bash -lc
+        '/\bpython[0-9.]*\s+(-[a-z]+\s+)*-[a-z]*c\b/i',                           // python3 -c
+        '/\b(perl|ruby)\s+(-[a-z]+\s+)*-[a-z]*e\b/i',                             // perl -e, perl -pi -e, ruby -e
+        '/\b(node|nodejs|deno|bun)\s+(-[a-z-]+\s+)*(-e|-p|--eval|--print)\b/i',   // node -e
+        '/\beval\s/i',                                                            // eval
     ];
 
     /**
@@ -47,36 +54,23 @@ final class ShellToolkit implements ToolkitInterface
     ];
 
     /**
-     * Environment variable name patterns that are safe to pass to subprocesses.
-     * Checked case-insensitively. Prefix-matched (e.g. 'LC_' matches LC_ALL, LC_CTYPE).
-     *
-     * @var string[]
-     */
-    private const SAFE_ENV_PREFIXES = [
-        'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'PWD', 'OLDPWD',
-        'LANG', 'LANGUAGE', 'LC_', 'TERM', 'COLORTERM',
-        'TMPDIR', 'TMP', 'TEMP',
-        'DISPLAY', 'WAYLAND_DISPLAY', 'XDG_',
-        'EDITOR', 'VISUAL', 'PAGER',
-        'SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'GPG_AGENT_INFO',
-        'FORCE_COLOR', 'NO_COLOR', 'CLICOLOR', 'CLICOLOR_FORCE',
-        // Build tools
-        'GIT_', 'COMPOSER_', 'NODE_', 'NPM_', 'NVM_', 'YARN_',
-        'GOPATH', 'GOROOT', 'CARGO_', 'RUSTUP_', 'JAVA_HOME', 'MAVEN_',
-        'PIP_', 'VIRTUAL_ENV', 'CONDA_', 'PYENV_',
-        'DOCKER_', 'KUBECONFIG',
-        // Coqui workspace
-        'COQUI_WORKSPACE',
-    ];
-
-    /**
-     * Environment variable name patterns that are ALWAYS blocked,
-     * regardless of SAFE_ENV_PREFIXES. Substring-matched case-insensitively.
+     * Environment variable name patterns that are always stripped.
+     * Substring-matched case-insensitively, so they also catch NPM_TOKEN,
+     * COMPOSER_AUTH, DOCKER_AUTH_CONFIG and SSH_AUTH_SOCK (agent forwarding).
      *
      * @var string[]
      */
     private const SENSITIVE_ENV_PATTERNS = [
         'KEY', 'TOKEN', 'SECRET', 'PASSWORD', 'CREDENTIAL', 'AUTH',
+    ];
+
+    /**
+     * Exact names that match a sensitive pattern but carry no secret.
+     *
+     * @var string[]
+     */
+    private const SENSITIVE_ENV_EXCEPTIONS = [
+        'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE',
     ];
 
     /**
@@ -811,6 +805,11 @@ final class ShellToolkit implements ToolkitInterface
 
             $cmd = basename($tokens[0]);
 
+            if ($cmd === 'sed') {
+                $targets = [...$targets, ...$this->sedInPlaceTargets($tokens)];
+                continue;
+            }
+
             if (!in_array($cmd, self::WRITE_COMMANDS, true)) {
                 continue;
             }
@@ -835,6 +834,54 @@ final class ShellToolkit implements ToolkitInterface
         }
 
         return $targets;
+    }
+
+    /**
+     * File operands of a `sed -i` / `sed --in-place` command (none otherwise).
+     *
+     * @param string[] $tokens
+     * @return string[]
+     */
+    private function sedInPlaceTargets(array $tokens): array
+    {
+        $inPlace = false;
+        $scriptGiven = false;
+        $operands = [];
+
+        for ($j = 1, $count = count($tokens); $j < $count; $j++) {
+            $token = $tokens[$j];
+
+            if (in_array($token, ['-e', '--expression', '-f', '--file'], true)) {
+                $scriptGiven = true;
+                $j++; // skip the script / script file
+                continue;
+            }
+
+            if (str_starts_with($token, '--')) {
+                $inPlace = $inPlace || str_starts_with($token, '--in-place');
+                $scriptGiven = $scriptGiven || str_starts_with($token, '--expression=') || str_starts_with($token, '--file=');
+                continue;
+            }
+
+            if (str_starts_with($token, '-') && strlen($token) > 1) {
+                // Short options cluster (-n, -E, -ni); -i takes an optional suffix (-i.bak)
+                $letters = (string) preg_replace('/[^a-zA-Z].*$/', '', substr($token, 1));
+                $inPlace = $inPlace || str_contains($letters, 'i');
+                if (str_ends_with($letters, 'e') || str_ends_with($letters, 'f')) {
+                    $scriptGiven = true;
+                    $j++;
+                }
+                continue;
+            }
+
+            $operands[] = $token;
+        }
+
+        if (!$inPlace) {
+            return [];
+        }
+
+        return $scriptGiven ? $operands : array_slice($operands, 1);
     }
 
     /**
@@ -921,7 +968,7 @@ final class ShellToolkit implements ToolkitInterface
         }
 
         // Check if under workspace root
-        if (str_starts_with($canonicalized, $realRoot)) {
+        if (PathHelper::isWithinBasePath($canonicalized, $realRoot)) {
             return null;
         }
 
@@ -931,7 +978,7 @@ final class ShellToolkit implements ToolkitInterface
             if ($realMountPath === false) {
                 $realMountPath = $allowed['realPath'];
             }
-            if (str_starts_with($canonicalized, $realMountPath)) {
+            if (PathHelper::isWithinBasePath($canonicalized, $realMountPath)) {
                 if ($allowed['readOnly']) {
                     return "Denied: write target is in a read-only mount: {$target}";
                 }
@@ -945,8 +992,9 @@ final class ShellToolkit implements ToolkitInterface
     /**
      * Build a sanitized environment for subprocess execution.
      *
-     * Keeps known-safe variables (PATH, HOME, GIT_*, etc.) and strips
-     * anything containing sensitive patterns (KEY, TOKEN, SECRET, etc.).
+     * Strips every variable whose name contains a sensitive pattern (KEY,
+     * TOKEN, SECRET, etc.), whatever its prefix, except a few exact names
+     * known to be harmless (GIT_AUTHOR_NAME). Everything else passes.
      *
      * @return array<string, string>
      */
@@ -959,23 +1007,11 @@ final class ShellToolkit implements ToolkitInterface
         foreach ($env as $name => $value) {
             $upperName = strtoupper($name);
 
-            // Safe prefixes take priority — explicitly allowed vars are never stripped.
-            // This prevents false positives like GIT_AUTHOR_NAME matching "AUTH".
-            $isSafe = false;
-            foreach (self::SAFE_ENV_PREFIXES as $prefix) {
-                $upperPrefix = strtoupper($prefix);
-                if ($upperName === $upperPrefix || str_starts_with($upperName, $upperPrefix)) {
-                    $isSafe = true;
-                    break;
-                }
-            }
-
-            if ($isSafe) {
+            if (in_array($upperName, self::SENSITIVE_ENV_EXCEPTIONS, true)) {
                 $sanitized[$name] = $value;
                 continue;
             }
 
-            // Non-safelisted vars are stripped if they contain sensitive patterns
             $isSensitive = false;
             foreach (self::SENSITIVE_ENV_PATTERNS as $pattern) {
                 if (str_contains($upperName, $pattern)) {
@@ -1013,13 +1049,13 @@ final class ShellToolkit implements ToolkitInterface
         if ($this->rootPath !== null) {
             $realRoot = realpath($this->rootPath);
             if ($realRoot !== false) {
-                if (str_starts_with($resolved, $realRoot)) {
+                if (PathHelper::isWithinBasePath($resolved, $realRoot)) {
                     return $resolved;
                 }
 
                 // Check allowed mount paths
                 foreach ($this->allowedPaths as $allowed) {
-                    if (str_starts_with($resolved, $allowed['realPath'])) {
+                    if (PathHelper::isWithinBasePath($resolved, $allowed['realPath'])) {
                         return $resolved;
                     }
                 }

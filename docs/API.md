@@ -4679,7 +4679,7 @@ Preflight `OPTIONS` requests are handled automatically with a `204` response.
 
 The API server enforces the same layered safety model as the terminal REPL:
 
-1. **Catastrophic Blacklist** — hardcoded patterns that always block destructive commands (`rm -rf /`, `shutdown`, fork bombs, etc.). Cannot be bypassed.
+1. **Catastrophic Blacklist** — hardcoded patterns that are always checked, in every mode, against destructive commands (`rm -rf /`, `shutdown`, fork bombs, etc.). They cannot be turned off, but they match command text, so a command written to avoid them is not caught. `exec` is host execution, not an isolation boundary; see [Layered Safety](FEATURES.md#layered-safety).
 2. **Script Sanitizer** — static analysis of generated PHP code. Blocks `eval`, `exec`, `system`, etc. Disabled with `--unsafe`.
 3. **Auto-Approval** — in API mode, tool executions are auto-approved (no interactive prompt). The catastrophic blacklist still applies.
 
