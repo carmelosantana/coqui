@@ -140,7 +140,11 @@ final class AgentRunner implements AgentTurnRunnerInterface
      */
     private function effectiveWorkspace(?string $sessionId): string
     {
-        $this->workspaceResolver ??= new SessionWorkspaceResolver($this->storage, $this->workspacePath);
+        $this->workspaceResolver ??= new SessionWorkspaceResolver(
+            $this->storage,
+            $this->workspacePath,
+            SessionWorkspacePolicy::fromMountManager($this->workspacePath, $this->mountManager),
+        );
 
         return $this->workspaceResolver->resolve($sessionId);
     }

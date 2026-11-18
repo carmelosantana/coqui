@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Command;
 
+use CoquiBot\Coqui\Agent\SessionWorkspacePolicy;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
@@ -313,7 +314,14 @@ final class ApiCommand extends Command
             artifactStore: $boot->artifactStore(),
         );
 
-        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->personaDiscovery(), $personaSessionLifecycle, artifactStore: $artifactStore);
+        $sessionHandler = new SessionHandler(
+            $storage,
+            $boot->roleResolver(),
+            $boot->personaDiscovery(),
+            $personaSessionLifecycle,
+            artifactStore: $artifactStore,
+            workspacePolicy: SessionWorkspacePolicy::fromMountManager($boot->workspacePath(), $boot->mountManager()),
+        );
         $messageHandler = new MessageHandler($storage, $turnManager);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(

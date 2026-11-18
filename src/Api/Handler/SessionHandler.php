@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
+use CoquiBot\Coqui\Agent\SessionWorkspacePolicy;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Session\GroupSessionEndpointHandlerInterface;
 use CoquiBot\Coqui\Api\Session\GroupSessionTypeHandler;
@@ -58,6 +59,7 @@ final readonly class SessionHandler
         private ?PersonaSessionLifecycleManager $lifecycleManager = null,
         private ?GroupSessionService $groupSessionService = null,
         private ?ArtifactStore $artifactStore = null,
+        private ?SessionWorkspacePolicy $workspacePolicy = null,
     ) {}
 
     /**
@@ -443,7 +445,7 @@ final readonly class SessionHandler
 
     private function sessionUpdateRequestResolver(): SessionUpdateRequestResolver
     {
-        return new SessionUpdateRequestResolver();
+        return new SessionUpdateRequestResolver($this->workspacePolicy);
     }
 
     /**
