@@ -40,6 +40,7 @@ use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Api\Middleware\AuthMiddleware;
 use CoquiBot\Coqui\Api\Middleware\ContentTypeMiddleware;
 use CoquiBot\Coqui\Api\Middleware\CorsMiddleware;
+use CoquiBot\Coqui\Api\Middleware\LocalOnlyGuardMiddleware;
 use CoquiBot\Coqui\Api\Middleware\IdempotencyMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
@@ -100,7 +101,7 @@ final class ApiCommand extends Command
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
             ->addOption('workspace', null, InputOption::VALUE_REQUIRED, 'Workspace directory (overrides config and default)')
             ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization (dangerous)')
-            ->addOption('cors-origin', null, InputOption::VALUE_REQUIRED, 'Allowed CORS origins (comma-separated)', '*');
+            ->addOption('cors-origin', null, InputOption::VALUE_REQUIRED, 'Allowed CORS origins (comma-separated). Default: none without an API key, * with one');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -121,7 +122,7 @@ final class ApiCommand extends Command
             || filter_var(getenv('COQUI_UNSAFE'), FILTER_VALIDATE_BOOLEAN);
         $corsOrigin = is_string($input->getOption('cors-origin'))
             ? $input->getOption('cors-origin')
-            : '*';
+            : null;
 
         $output->writeln('<info>Coqui API Server is running!</info>');
 
@@ -405,21 +406,27 @@ final class ApiCommand extends Command
             ));
         }
 
-        // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
-        $corsOrigins = array_map('trim', explode(',', $corsOrigin));
-        $cors = new CorsMiddleware($corsOrigins);
+        // Build middleware stack (order: local-only guard → CORS → rate limit →
+        // request size → content type → auth). Without an API key there is no
+        // CORS unless the operator asked for it, and the local-only guard
+        // refuses rebinding Host headers and foreign browser Origins.
+        $corsOrigins = CorsMiddleware::resolveOrigins($corsOrigin, $apiKey !== null);
 
         // Rate limiting: configurable via openclaw.json, default 30 req/min
         $rateLimitConfig = $boot->config()->get('api.rateLimit', []);
         $rateLimitMax = is_array($rateLimitConfig) ? (int) ($rateLimitConfig['maxRequests'] ?? 30) : 30;
         $rateLimitWindow = is_array($rateLimitConfig) ? (int) ($rateLimitConfig['windowSeconds'] ?? 60) : 60;
 
-        $middlewareStack = [
-            $cors,
-            new RateLimitMiddleware($rateLimitMax, $rateLimitWindow),
-            new RequestSizeMiddleware(),
-            new ContentTypeMiddleware(),
-        ];
+        $middlewareStack = [];
+        if ($apiKey === null) {
+            $middlewareStack[] = new LocalOnlyGuardMiddleware($corsOrigins);
+        }
+        if ($corsOrigins !== []) {
+            $middlewareStack[] = new CorsMiddleware($corsOrigins);
+        }
+        $middlewareStack[] = new RateLimitMiddleware($rateLimitMax, $rateLimitWindow);
+        $middlewareStack[] = new RequestSizeMiddleware();
+        $middlewareStack[] = new ContentTypeMiddleware();
 
         if ($apiKey !== null) {
             $middlewareStack[] = new AuthMiddleware(

@@ -295,7 +295,7 @@ coqui api --host 0.0.0.0 --port 8080  # Listen on all interfaces, port 8080
 | `--workdir <path>` | `-w` | Working directory (project root) |
 | `--workspace <path>` | | Workspace directory (overrides config and default) |
 | `--unsafe` | | Disable PHP script sanitization |
-| `--cors-origin <origins>` | | Allowed CORS origins, comma-separated. Default: `*` |
+| `--cors-origin <origins>` | | Allowed CORS origins, comma-separated. Default: none without an API key, `*` with one |
 
 **Environment variable:** `COQUI_API_HOST` overrides the `--host` default when the flag is not explicitly passed.
 
