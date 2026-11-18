@@ -118,7 +118,7 @@ test('allPatterns includes hardcoded and user patterns', function () {
 test('empty constructor has no user patterns', function () {
     $bl = new CatastrophicBlacklist();
 
-    expect(count($bl->allPatterns()))->toBe(23);
+    expect(count($bl->allPatterns()))->toBe(26);
 });
 
 // ---------------------------------------------------------------
@@ -193,3 +193,29 @@ test('CHECKED_TOOLS does not contain file-writing tools', function () {
         expect(CatastrophicBlacklist::CHECKED_TOOLS)->not->toContain($tool);
     }
 });
+
+// ---------------------------------------------------------------
+// #5 — gaps in the hardcoded patterns
+// ---------------------------------------------------------------
+
+test('blocks a quoted or option-terminated root delete', function (string $command) {
+    expect((new CatastrophicBlacklist())->matches($command))->not->toBeNull();
+})->with([
+    'double-quoted root' => 'rm -rf "/"',
+    'single-quoted root' => "rm -rf '/'",
+    'double-dash' => 'rm -rf -- /',
+    'quoted star' => 'rm -rf "/"*',
+    'no-preserve-root' => 'rm -r --no-preserve-root /home',
+    'find delete' => 'find / -delete',
+    'find quoted root delete' => 'find "/" -type f -delete',
+    'find exec rm' => 'find / -name "*.log" -exec rm {} +',
+]);
+
+test('still allows deleting inside a directory', function (string $command) {
+    expect((new CatastrophicBlacklist())->matches($command))->toBeNull();
+})->with([
+    'rm -rf /tmp/build',
+    'rm -rf "/tmp/my dir"',
+    'find . -name "*.tmp" -delete',
+    'find /tmp/cache -delete',
+]);

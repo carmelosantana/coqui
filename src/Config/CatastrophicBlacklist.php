@@ -39,6 +39,11 @@ final class CatastrophicBlacklist
     private const HARDCODED_PATTERNS = [
         '/\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*\s+|--force\s+).*\s*\/(\s|$|\*)/i',
         '/\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+\/(\s|$|\*)/i',
+        // rm of the root written with quotes or after options/--: rm -rf "/", rm -rf -- /
+        '/\brm\s+(?:-{1,2}[a-zA-Z-]*\s+)*["\']?\/["\']?(\s|$|\*)/i',
+        '/\brm\b.*--no-preserve-root\b/i',
+        // find over the whole filesystem that deletes: find / -delete, find / -exec rm
+        '/\bfind\s+["\']?\/["\']?\s.*(-delete\b|-exec(dir)?\s+rm\b)/i',
         '/\bshutdown\b/i',
         '/\breboot\b/i',
         '/\bmkfs\b/i',
