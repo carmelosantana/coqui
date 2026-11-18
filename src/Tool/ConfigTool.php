@@ -146,16 +146,7 @@ final class ConfigTool implements ToolInterface
 
     private function handleShow(): ToolResult
     {
-        $data = $this->configManager->toArray();
-
-        // Sanitize API keys in provider configs
-        if (isset($data['models']['providers']) && is_array($data['models']['providers'])) {
-            foreach ($data['models']['providers'] as $name => $provider) {
-                if (is_array($provider) && isset($provider['apiKey'])) {
-                    $data['models']['providers'][$name]['apiKey'] = '***';
-                }
-            }
-        }
+        $data = ConfigManager::maskSecrets($this->configManager->toArray());
 
         $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 

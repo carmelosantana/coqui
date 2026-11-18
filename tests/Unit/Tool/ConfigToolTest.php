@@ -263,3 +263,33 @@ test('set toggles conversation history prompt mode', function () {
     $data = json_decode(file_get_contents($this->manager->path()), true);
     expect($data['agents']['defaults']['context']['conversationHistoryInSystemPrompt'])->toBeTrue();
 });
+
+test('get masks secrets nested under the requested key', function () {
+    $config = json_decode((string) file_get_contents($this->tmpDir . '/workspace/openclaw.json'), true);
+    $config['api'] = ['key' => 'coqui-api-secret', 'port' => 3300];
+    $config['mcp'] = ['servers' => ['x' => ['headers' => ['Authorization' => 'Bearer mcp-secret-token'], 'env' => ['GITHUB_TOKEN' => 'ghtoken-secret']]]];
+    file_put_contents($this->tmpDir . '/workspace/openclaw.json', json_encode($config));
+    $this->manager->load();
+
+    $api = $this->tool->execute(['action' => 'get', 'key' => 'api']);
+    $provider = $this->tool->execute(['action' => 'get', 'key' => 'models.providers.openai']);
+    $mcp = $this->tool->execute(['action' => 'get', 'key' => 'mcp']);
+
+    expect($api->content)->not->toContain('coqui-api-secret')->toContain('3300')
+        ->and($provider->content)->not->toContain('sk-secret123')->toContain('gpt-4o')
+        ->and($mcp->content)->not->toContain('mcp-secret-token')->not->toContain('ghtoken-secret');
+});
+
+test('show masks the API key and nested secrets', function () {
+    $config = json_decode((string) file_get_contents($this->tmpDir . '/workspace/openclaw.json'), true);
+    $config['api'] = ['key' => 'coqui-api-secret'];
+    $config['mcp'] = ['servers' => ['x' => ['headers' => ['Authorization' => 'Bearer mcp-secret-token']]]];
+    file_put_contents($this->tmpDir . '/workspace/openclaw.json', json_encode($config));
+    $this->manager->load();
+
+    $result = $this->tool->execute(['action' => 'show']);
+
+    expect($result->content)->not->toContain('coqui-api-secret')
+        ->not->toContain('mcp-secret-token')
+        ->toContain('openai/gpt-4o');
+});
