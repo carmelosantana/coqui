@@ -54,9 +54,19 @@ final class FallbackProvider implements ProviderInterface
 
     public function stream(array $messages, array $tools = [], array $options = []): iterable
     {
+        // Fall back only before the primary yields: the caller has already
+        // consumed any chunk it sent, so a second model's stream would be
+        // spliced onto a partial answer.
+        $yielded = false;
         try {
-            yield from $this->primary->stream($messages, $tools, $options);
+            foreach ($this->primary->stream($messages, $tools, $options) as $chunk) {
+                $yielded = true;
+                yield $chunk;
+            }
         } catch (\Throwable $e) {
+            if ($yielded) {
+                throw $e;
+            }
             yield from $this->attemptFallbackStream($e, $messages, $tools, $options);
         }
     }
@@ -141,11 +151,18 @@ final class FallbackProvider implements ProviderInterface
         $this->notifyFallbackStart($originalError);
 
         foreach ($this->fallbacks as $fallback) {
+            $yielded = false;
             try {
-                yield from $fallback->stream($messages, $tools, $options);
+                foreach ($fallback->stream($messages, $tools, $options) as $chunk) {
+                    $yielded = true;
+                    yield $chunk;
+                }
                 $this->notify(sprintf('Fallback to %s succeeded.', $fallback->getModel()));
                 return;
             } catch (\Throwable $e) {
+                if ($yielded) {
+                    throw $e;
+                }
                 $this->notify(sprintf(
                     'Fallback model %s also failed: %s',
                     $fallback->getModel(),
