@@ -119,11 +119,11 @@ test('set updates an allowed config value', function () {
     $result = $this->tool->execute([
         'action' => 'set',
         'key' => 'agents.defaults.maxIterations',
-        'value' => '30',
+        'value' => '20',
     ]);
 
     expect($result->status->value)->toBe('success');
-    expect($result->content)->toContain('30');
+    expect($result->content)->toContain('20');
     expect($result->content)->toContain('restart is required');
 });
 
@@ -233,22 +233,22 @@ test('set parses boolean values', function () {
     $this->tool->execute([
         'action' => 'set',
         'key' => 'agents.defaults.maxIterations',
-        'value' => '50',
+        'value' => '15',
     ]);
 
     $data = json_decode(file_get_contents($this->manager->path()), true);
-    expect($data['agents']['defaults']['maxIterations'])->toBe(50);
+    expect($data['agents']['defaults']['maxIterations'])->toBe(15);
 });
 
 test('set parses integer values', function () {
     $this->tool->execute([
         'action' => 'set',
         'key' => 'agents.defaults.maxIterations',
-        'value' => '42',
+        'value' => '12',
     ]);
 
     $data = json_decode(file_get_contents($this->manager->path()), true);
-    expect($data['agents']['defaults']['maxIterations'])->toBe(42);
+    expect($data['agents']['defaults']['maxIterations'])->toBe(12);
 });
 
 test('set toggles conversation history prompt mode', function () {
@@ -292,4 +292,28 @@ test('show masks the API key and nested secrets', function () {
     expect($result->content)->not->toContain('coqui-api-secret')
         ->not->toContain('mcp-secret-token')
         ->toContain('openai/gpt-4o');
+});
+
+test('set lets the agent lower maxIterations but not raise or unbound it', function (string $value, string $status) {
+    $result = $this->tool->execute(['action' => 'set', 'key' => 'agents.defaults.maxIterations', 'value' => $value]);
+
+    expect($result->status->value)->toBe($status);
+})->with([
+    'lower' => ['10', 'success'],
+    'same' => ['25', 'success'],
+    'raise' => ['100000', 'error'],
+    'zero (unlimited)' => ['0', 'error'],
+    'negative' => ['-1', 'error'],
+    'not a number' => ['lots', 'error'],
+]);
+
+test('set refuses to raise maxIterations above the built-in default when none is configured', function () {
+    $config = json_decode((string) file_get_contents($this->tmpDir . '/workspace/openclaw.json'), true);
+    unset($config['agents']['defaults']['maxIterations']);
+    file_put_contents($this->tmpDir . '/workspace/openclaw.json', json_encode($config));
+    $this->manager->load();
+
+    $over = $this->tool->execute(['action' => 'set', 'key' => 'agents.defaults.maxIterations', 'value' => (string) (\CoquiBot\Coqui\Contract\CoquiDefaults::MAX_ITERATIONS + 1)]);
+
+    expect($over->status->value)->toBe('error');
 });

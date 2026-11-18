@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\ModelMetadataResolver;
@@ -134,6 +135,13 @@ final class ConfigTool implements ToolInterface
         // Parse JSON values for complex types (arrays, objects)
         $value = $this->parseValue($rawValue);
 
+        if ($key === 'agents.defaults.maxIterations') {
+            $budgetError = $this->checkIterationBudget($value);
+            if ($budgetError !== null) {
+                return ToolResult::error($budgetError);
+            }
+        }
+
         $errors = $this->configManager->set($key, $value);
         if (!empty($errors)) {
             return ToolResult::error("Validation failed:\n" . implode("\n", $errors));
@@ -142,6 +150,27 @@ final class ConfigTool implements ToolInterface
         $display = is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_SLASHES);
 
         return ToolResult::success("Config updated: {$key} = {$display}\nA restart is required for changes to take effect. Use the restart_coqui tool or ask the user to /restart.");
+    }
+
+    /**
+     * The agent may tighten its own iteration budget but never raise it or
+     * make it unbounded; only the operator can grant more iterations.
+     */
+    private function checkIterationBudget(mixed $value): ?string
+    {
+        $current = $this->configManager->config()->get('agents.defaults.maxIterations');
+        $ceiling = is_numeric($current) ? (int) $current : CoquiDefaults::MAX_ITERATIONS;
+
+        if (!is_int($value) && !(is_string($value) && ctype_digit($value))) {
+            return 'maxIterations must be a positive integer.';
+        }
+
+        $requested = (int) $value;
+        if ($requested < 1 || $requested > $ceiling) {
+            return sprintf('The agent can only lower maxIterations (1-%d). Ask the user to raise it with /config.', $ceiling);
+        }
+
+        return null;
     }
 
     private function handleShow(): ToolResult

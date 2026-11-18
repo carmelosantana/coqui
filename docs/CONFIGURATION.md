@@ -791,7 +791,7 @@ Coqui adds the following keys under `agents.defaults` that are specific to Coqui
 | `agents.defaults.toolProfile` | `lean` | Tool profile preset |
 | `agents.defaults.coreToolkits` | profile preset | Toolkits always loaded eagerly |
 | `agents.defaults.mounts` | `[]` | External directory mounts |
-| `agents.defaults.maxIterations` | `256` | Agent iteration budget |
+| `agents.defaults.maxIterations` | `256` | Agent iteration budget. The `config` tool lets the agent lower it, never raise it |
 | `agents.defaults.backgroundTaskMaxIterations` | `512` | Per-task background iteration cap |
 | `agents.defaults.emptyResponse.handling` | `nudge_then_fallback` | Policy for empty model turns |
 | `agents.defaults.emptyResponse.maxRetries` | `2` | Corrective retries for empty turns |
