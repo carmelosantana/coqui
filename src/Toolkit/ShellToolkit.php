@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
+use CoquiBot\Coqui\Support\FileSystemOperations;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
@@ -94,7 +95,12 @@ final class ShellToolkit implements ToolkitInterface
         private readonly array $allowedPaths = [],
         private readonly bool $sandboxWrites = true,
         private readonly bool $scrubEnvironment = true,
-    ) {}
+    ) {
+        $this->fs = $rootPath !== null ? new FileSystemOperations($rootPath, $allowedPaths) : null;
+    }
+
+    /** Sandbox view used to recognise protected files; null without a root. */
+    private readonly ?FileSystemOperations $fs;
 
     public function tools(): array
     {
@@ -182,6 +188,13 @@ final class ShellToolkit implements ToolkitInterface
                 $effectiveCwd = $this->resolveCwd($cwd);
                 if ($effectiveCwd === null) {
                     return ToolResult::error("Invalid working directory: {$cwd}");
+                }
+
+                // Protected files (.env, tokens, databases, openclaw.json) are
+                // off limits however the sandbox is configured.
+                $secretViolation = $this->validateSecretReferences($command, $effectiveCwd);
+                if ($secretViolation !== null) {
+                    return ToolResult::error($secretViolation);
                 }
 
                 // Sandbox writes: validate all write targets are within the sandbox.
@@ -437,6 +450,195 @@ final class ShellToolkit implements ToolkitInterface
         }
 
         return null;
+    }
+
+    /**
+     * Refuse a command when any word in it names a protected secret file.
+     *
+     * Each simple command is checked against the working directory it will
+     * run in (`cd` is tracked), globs are expanded, and words are also split
+     * on `=`, `<` and `>` so `if=.env` and `<.env` are caught. This is a
+     * heuristic: a path built at run time (variables, base64, recursive
+     * readers such as `grep -r .`) is not caught. See docs/FEATURES.md.
+     */
+    private function validateSecretReferences(string $command, string $effectiveCwd): ?string
+    {
+        if ($this->fs === null) {
+            return null;
+        }
+
+        foreach ($this->simpleCommands($command, $effectiveCwd) as ['tokens' => $tokens, 'cwds' => $cwds]) {
+            foreach ($tokens as $token) {
+                foreach (preg_split('/[=<>]+/', $token) ?: [] as $word) {
+                    if ($word === '' || str_starts_with($word, '-')) {
+                        continue;
+                    }
+
+                    foreach ($cwds as $cwd) {
+                        foreach ($this->candidatePaths($word, $cwd) as $path) {
+                            if ($this->fs->isSecretPath($path)) {
+                                return "Denied: command references a protected Coqui file (credentials or control state): {$word}";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Split a command line into simple commands, each with the set of working
+     * directories it may run in.
+     *
+     * Splits on unquoted `;`, `&`, `|`, newlines, parentheses and backticks.
+     * A `cd`/`pushd` adds its target to the candidate set for every later
+     * command (the old directories stay, since a subshell or `||` may not
+     * have changed directory). A target that cannot be resolved statically
+     * yields a null cwd, meaning "unknown".
+     *
+     * @return list<array{tokens: list<string>, cwds: list<string|null>}>
+     */
+    private function simpleCommands(string $command, string $effectiveCwd): array
+    {
+        $commands = [];
+        $cwds = [$effectiveCwd];
+
+        foreach ($this->splitOnOperators($command) as $segment) {
+            $tokens = array_values($this->tokenizeCommand($segment));
+            if ($tokens === []) {
+                continue;
+            }
+
+            $commands[] = ['tokens' => $tokens, 'cwds' => $cwds];
+
+            if (in_array($tokens[0], ['cd', 'pushd'], true)) {
+                $target = $tokens[1] ?? '~';
+                foreach ($cwds as $cwd) {
+                    $cwds[] = $this->resolveCdTarget($target, $cwd);
+                }
+                $cwds = array_values(array_unique($cwds, SORT_REGULAR));
+            }
+        }
+
+        return $commands;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function splitOnOperators(string $command): array
+    {
+        $segments = [];
+        $current = '';
+        $quote = null;
+        $escapeNext = false;
+        $length = strlen($command);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $command[$i];
+
+            if ($escapeNext) {
+                $current .= $char;
+                $escapeNext = false;
+                continue;
+            }
+
+            if ($char === '\\' && $quote !== "'") {
+                $current .= $char;
+                $escapeNext = true;
+                continue;
+            }
+
+            if ($quote !== null) {
+                $current .= $char;
+                if ($char === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+
+            if ($char === "'" || $char === '"') {
+                $quote = $char;
+                $current .= $char;
+                continue;
+            }
+
+            if (in_array($char, [';', '&', '|', "\n", "\r", '(', ')', '`', '{', '}'], true)) {
+                $segments[] = $current;
+                $current = '';
+                continue;
+            }
+
+            $current .= $char;
+        }
+
+        $segments[] = $current;
+
+        return array_values(array_filter(array_map('trim', $segments), static fn(string $s): bool => $s !== ''));
+    }
+
+    /**
+     * Resolve a `cd` argument against $cwd, or null when it is not static.
+     */
+    private function resolveCdTarget(string $target, ?string $cwd): ?string
+    {
+        if ($cwd === null || $target === '-' || preg_match('/[\$`*?\[]/', $target) === 1) {
+            return null;
+        }
+
+        return $this->absolutize($target, $cwd);
+    }
+
+    /**
+     * Absolute, lexically canonical paths $word may refer to from $cwd
+     * (glob matches when it holds glob characters). A null cwd only resolves
+     * absolute and home-relative words.
+     *
+     * @return list<string>
+     */
+    private function candidatePaths(string $word, ?string $cwd): array
+    {
+        if ($cwd === null && !str_starts_with($word, '/') && !str_starts_with($word, '~')) {
+            return [];
+        }
+
+        $path = $this->absolutize($word, $cwd ?? '/');
+
+        if (preg_match('/[*?\[]/', $word) === 1) {
+            return glob($path, GLOB_NOSORT) ?: [];
+        }
+
+        return [$path];
+    }
+
+    /**
+     * Make $path absolute against $cwd (expanding `~`) and canonicalise `.`
+     * and `..` lexically.
+     */
+    private function absolutize(string $path, string $cwd): string
+    {
+        if (str_starts_with($path, '~/') || $path === '~') {
+            $home = getenv('HOME') ?: '/';
+            $path = $home . '/' . ltrim(substr($path, 1), '/');
+        } elseif (!str_starts_with($path, '/')) {
+            $path = $cwd . '/' . $path;
+        }
+
+        $resolved = [];
+        foreach (explode('/', $path) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+            if ($segment === '..') {
+                array_pop($resolved);
+            } else {
+                $resolved[] = $segment;
+            }
+        }
+
+        return '/' . implode('/', $resolved);
     }
 
     /**

@@ -827,7 +827,11 @@ final readonly class FileSystemOperations
         }
     }
 
-    private function isSecretPath(string $absolutePath): bool
+    /**
+     * True when $absolutePath (after resolving symlinks) is a protected secret
+     * under the sandbox root — see ProtectedWorkspacePaths.
+     */
+    public function isSecretPath(string $absolutePath): bool
     {
         $relative = $this->rootRelative($absolutePath);
 
