@@ -892,3 +892,161 @@ test('sanitizeUsage trusts provider when conversation is null', function () {
         cleanupAgentRunnerFixture($fixture);
     }
 });
+
+// --- failed provider stops (php-agents: Refusal, ContentFilter, ContextWindowExceeded, Error) ---
+
+function makeFinishReasonProvider(ProviderFinishReason $finishReason, string $content): ProviderInterface
+{
+    return new class($finishReason, $content) implements ProviderInterface {
+        public function __construct(
+            private readonly ProviderFinishReason $finishReason,
+            private readonly string $content,
+        ) {}
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            return $this->response();
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            yield $this->response();
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return [];
+        }
+
+        public function models(): array
+        {
+            return [];
+        }
+
+        public function isAvailable(): bool
+        {
+            return true;
+        }
+
+        public function getModel(): string
+        {
+            return 'test/mock';
+        }
+
+        public function withModel(string $model): static
+        {
+            return $this;
+        }
+
+        private function response(): Response
+        {
+            return new Response(
+                content: $this->content,
+                finishReason: $this->finishReason,
+                model: 'test/mock',
+                usage: new Usage(promptTokens: 10, completionTokens: 0, totalTokens: 10),
+            );
+        }
+    };
+}
+
+test('run reports a failed provider stop as a turn error with readable content', function (
+    ProviderFinishReason $providerReason,
+    string $providerContent,
+    string $expectedError,
+) {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($fixture['config']),
+            config: $fixture['config'],
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($fixture['config']),
+            deps: new AgentRunnerDependencies(
+                providerResolver: static fn(string $model): ProviderInterface => makeFinishReasonProvider($providerReason, $providerContent),
+            ),
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $result = $runner->run('Do the thing', $sessionId, allowAllPolicy());
+
+        expect($result->error)->toContain($expectedError)
+            ->and($result->content)->not->toBe('');
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+})->with([
+    'refusal with no text' => [ProviderFinishReason::Refusal, '', 'declined'],
+    'content filter with no text' => [ProviderFinishReason::ContentFilter, '', 'content filter'],
+    'context window exceeded' => [ProviderFinishReason::ContextWindowExceeded, '', 'context window'],
+    'truncated stream' => [ProviderFinishReason::Error, '', 'Provider error'],
+    'max_tokens with no text' => [ProviderFinishReason::MaxTokens, '', 'max_tokens'],
+]);
+
+test('run keeps the model text of a refusal as the turn content', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($fixture['config']),
+            config: $fixture['config'],
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($fixture['config']),
+            deps: new AgentRunnerDependencies(
+                providerResolver: static fn(string $model): ProviderInterface => makeFinishReasonProvider(ProviderFinishReason::Refusal, 'I can not help with that.'),
+            ),
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $result = $runner->run('Do the thing', $sessionId, allowAllPolicy());
+
+        expect($result->content)->toBe('I can not help with that.')
+            ->and($result->error)->toContain('declined');
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+test('runSegment reports a refusal as a segment error', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($fixture['config']),
+            config: $fixture['config'],
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($fixture['config']),
+            deps: new AgentRunnerDependencies(
+                providerResolver: static fn(string $model): ProviderInterface => makeFinishReasonProvider(ProviderFinishReason::Refusal, ''),
+            ),
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $turnId = $fixture['storage']->createTurn($sessionId, 'Do the thing', 'ollama/qwen3:latest');
+        $result = $runner->runSegment('Do the thing', $sessionId, $turnId, allowAllPolicy());
+
+        expect($result->error)->toBe('The model declined to respond (refusal).')
+            ->and($result->content)->toBe('The model declined to respond (refusal).');
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
