@@ -32,6 +32,9 @@ final class ExecutionPolicyFactory
         'project_delete' => ['*'],
         'restart_coqui' => ['*'],
         'schedule_delete' => ['*'],
+        // SpawnAgentTool re-checks with the resolved access level before it
+        // starts a full-access child (shell, file writes, web).
+        'spawn_agent' => [['access_level' => 'full']],
     ];
 
     public function __construct(

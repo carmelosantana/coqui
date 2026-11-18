@@ -543,6 +543,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
                     observer: $observer,
                     activePersona: $persona,
                     activePersonaPath: $resolvedPersonaPath,
+                    executionPolicy: $executionPolicy,
+                    cancellationToken: $cancellationToken,
                 );
                 if ($reviewResult !== null) {
                     $reviewFeedback = $reviewResult->reviewFeedback;
@@ -889,6 +891,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
                     observer: $observer,
                     activePersona: $persona,
                     activePersonaPath: $resolvedPersonaPath,
+                    executionPolicy: $executionPolicy,
+                    cancellationToken: $cancellationToken,
                 );
                 if ($reviewResult !== null) {
                     $reviewFeedback = $reviewResult->reviewFeedback;
@@ -2226,6 +2230,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?SplObserver $observer,
         ?string $activePersona = null,
         ?string $activePersonaPath = null,
+        ?ToolExecutionPolicyInterface $executionPolicy = null,
+        ?CancellationTokenInterface $cancellationToken = null,
     ): ?\CoquiBot\Coqui\Contract\CodeReviewResult {
         try {
             $cycle = new CodeReviewCycle(
@@ -2237,6 +2243,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 providerFactory: $this->providerFactory,
                 activePersona: $activePersona,
                 activePersonaPath: $activePersonaPath,
+                executionPolicy: $executionPolicy,
+                cancellationToken: $cancellationToken,
             );
 
             // Build reviewer toolkits: read-only filesystem + shell search

@@ -665,6 +665,9 @@ final class OrchestratorAgent extends AbstractAgent
             personaIdentityPreamble: $this->buildPersonaIdentityPreamble(),
             activePersona: $this->activePersona,
             activePersonaPath: $this->activePersonaPath,
+            executionPolicy: $executionPolicy,
+            cancellationToken: $cancellationToken,
+            budgetExitThreshold: $this->budgetExitThreshold,
         );
 
         // Create credential tool for API key management
