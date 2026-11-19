@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\AttachmentDirectory;
 use CarmeloSantana\PHPAgents\Agent\Output;
 use CarmeloSantana\PHPAgents\Enum\AgentFinishReason;
 use CarmeloSantana\PHPAgents\Enum\ProviderFinishReason;
@@ -1047,6 +1048,145 @@ test('runSegment reports a refusal as a segment error', function () {
         expect($result->error)->toBe('The model declined to respond (refusal).')
             ->and($result->content)->toBe('The model declined to respond (refusal).');
     } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+// --- image attachments (php-agents 0.17: withImages needs an ImageResolverInterface) ---
+
+/**
+ * @param ArrayObject<int, array<int, mixed>> $captured Message lists, one per provider call.
+ */
+function makeCapturingProvider(ArrayObject $captured): ProviderInterface
+{
+    return new class($captured) implements ProviderInterface {
+        /** @param ArrayObject<int, array<int, mixed>> $captured */
+        public function __construct(private readonly ArrayObject $captured) {}
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            $this->captured[] = $messages;
+
+            return new Response('ok', ProviderFinishReason::Stop, model: 'test/mock');
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            yield $this->chat($messages, $tools, $options);
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return [];
+        }
+
+        public function models(): array
+        {
+            return [];
+        }
+
+        public function isAvailable(): bool
+        {
+            return true;
+        }
+
+        public function getModel(): string
+        {
+            return 'test/mock';
+        }
+
+        public function withModel(string $model): static
+        {
+            return $this;
+        }
+    };
+}
+
+/**
+ * @param ArrayObject<int, array<int, mixed>> $captured
+ * @return list<array<string, mixed>> Content blocks of the first user message sent.
+ */
+function firstUserContent(ArrayObject $captured): array
+{
+    foreach ($captured[0] ?? [] as $message) {
+        if ($message instanceof UserMessage) {
+            $content = $message->content();
+
+            return is_array($content) ? $content : [['type' => 'text', 'text' => $content]];
+        }
+    }
+
+    return [];
+}
+
+const ONE_PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+function runWithAttachment(array $fixture, string $imagePath, ArrayObject $captured): \CoquiBot\Coqui\Contract\AgentTurnResult
+{
+    $runner = new AgentRunner(
+        roleResolver: new RoleResolver($fixture['config']),
+        config: $fixture['config'],
+        projectRoot: dirname(__DIR__, 3),
+        workspacePath: $fixture['workspacePath'],
+        storage: $fixture['storage'],
+        observer: null,
+        discovery: $fixture['discovery'],
+        blacklist: $fixture['blacklist'],
+        credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+        providerFactory: new ProviderFactory($fixture['config']),
+        deps: new AgentRunnerDependencies(
+            providerResolver: static fn(string $model): ProviderInterface => makeCapturingProvider($captured),
+        ),
+    );
+
+    $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+    $observer = new class implements SplObserver {
+        public function update(SplSubject $subject): void {}
+    };
+
+    return $runner->runWithObserver('Describe the picture', $sessionId, allowAllPolicy(), $observer, filePaths: [$imagePath]);
+}
+
+test('run sends an attached image from the attachment directory', function () {
+    $fixture = createAgentRunnerFixture();
+    $dir = AttachmentDirectory::path();
+    if (!is_dir($dir)) {
+        mkdir($dir, 0700, true);
+    }
+    $image = $dir . '/' . bin2hex(random_bytes(6)) . '-pic';
+    file_put_contents($image, base64_decode(ONE_PIXEL_PNG));
+    $captured = new ArrayObject();
+
+    try {
+        $result = runWithAttachment($fixture, $image, $captured);
+
+        $types = array_column(firstUserContent($captured), 'type');
+        expect($result->error)->toBeNull()
+            ->and($types)->toContain('image_url');
+    } finally {
+        @unlink($image);
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+test('run refuses an attached image outside the allowed roots without failing the turn', function () {
+    $fixture = createAgentRunnerFixture();
+    $outside = sys_get_temp_dir() . '/coqui-outside-' . bin2hex(random_bytes(6));
+    mkdir($outside, 0700, true);
+    $image = $outside . '/pic.png';
+    file_put_contents($image, base64_decode(ONE_PIXEL_PNG));
+    $captured = new ArrayObject();
+
+    try {
+        $result = runWithAttachment($fixture, $image, $captured);
+
+        $content = firstUserContent($captured);
+        expect($result->error)->toBeNull()
+            ->and(array_column($content, 'type'))->not->toContain('image_url')
+            ->and((string) ($content[0]['text'] ?? ''))->toContain('pic.png was not attached');
+    } finally {
+        cleanupTestTree($outside);
         cleanupAgentRunnerFixture($fixture);
     }
 });

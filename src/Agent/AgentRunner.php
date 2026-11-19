@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Agent;
 
+use CarmeloSantana\PHPAgents\Image\ImageInputException;
+use CarmeloSantana\PHPAgents\Image\LocalImageResolver;
+use CoquiBot\Coqui\Support\AttachmentDirectory;
 use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
@@ -1723,8 +1726,26 @@ final class AgentRunner implements AgentTurnRunnerInterface
 
         $enrichedPrompt = $textContext !== '' ? $prompt . $textContext : $prompt;
 
-        if ($imagePaths !== []) {
-            return UserMessage::withImages($enrichedPrompt, $imagePaths);
+        if ($imagePaths === []) {
+            return new UserMessage($enrichedPrompt);
+        }
+
+        // php-agents reads images only through a resolver. Allow the API
+        // attachment directory and the workspace; an image elsewhere (or one
+        // the policy refuses) is left out with a note instead of failing the turn.
+        $resolver = new LocalImageResolver([AttachmentDirectory::path(), $this->workspacePath]);
+        $accepted = [];
+        foreach ($imagePaths as $imagePath) {
+            try {
+                $resolver->resolve($imagePath);
+                $accepted[] = $imagePath;
+            } catch (ImageInputException $e) {
+                $enrichedPrompt .= sprintf("\n\n[Image %s was not attached: %s]", basename($imagePath), $e->getMessage());
+            }
+        }
+
+        if ($accepted !== []) {
+            return UserMessage::withImages($enrichedPrompt, $accepted, $resolver);
         }
 
         return new UserMessage($enrichedPrompt);
