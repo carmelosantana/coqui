@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Tool;
 
+use CarmeloSantana\PHPAgents\Contract\ToolGrantInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
@@ -30,9 +31,14 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
  *   3. Agent calls the specific tool it identified
  *
  * This tool itself is exempt from the maxTools cap (it is always loaded).
+ * As a ToolGrantInterface it makes the tools a search found executable for the
+ * rest of the run, so a tool beyond the maxTools cap stays callable once found.
  */
-final class ToolSearchTool implements ToolInterface
+final class ToolSearchTool implements ToolInterface, ToolGrantInterface
 {
+    /** @var list<string> Names found by the most recent search. */
+    private array $lastFound = [];
+
     public function __construct(
         private readonly ToolRegistry $registry,
     ) {}
@@ -77,8 +83,17 @@ final class ToolSearchTool implements ToolInterface
         ];
     }
 
+    /**
+     * @return list<string>
+     */
+    public function grantedToolNames(): array
+    {
+        return $this->lastFound;
+    }
+
     public function execute(array $arguments): ToolResult
     {
+        $this->lastFound = [];
         $query = trim((string) ($arguments['query'] ?? ''));
         if ($query === '') {
             return ToolResult::error('query is required and must not be empty.');
@@ -94,6 +109,8 @@ final class ToolSearchTool implements ToolInterface
                 "No tools matched \"{$query}\". The registry contains {$total} tools. Try broader keywords."
             );
         }
+
+        $this->lastFound = array_values(array_map(static fn(array $result): string => $result['name'], $results));
 
         $lines = [];
         foreach ($results as $result) {
