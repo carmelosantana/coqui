@@ -816,6 +816,8 @@ it('CORE-29 (part 1): spawnChildRun runs the child, records running→completed,
         // A deterministic provider: one Stop response with a split token triad, so
         // the child completes on its first iteration without touching the network.
         $provider = new class implements ProviderInterface {
+            use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
             public function chat(array $messages, array $tools = [], array $options = []): ProviderResponse
             {
                 return new ProviderResponse(

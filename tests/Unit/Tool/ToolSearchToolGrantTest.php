@@ -59,6 +59,9 @@ test('a tool beyond the maxTools cap runs after tool_search finds it', function 
     $search = new ToolSearchTool($registry);
 
     $provider = new class implements ProviderInterface {
+
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         private int $call = 0;
 
         public function chat(array $messages, array $tools = [], array $options = []): Response

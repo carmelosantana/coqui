@@ -31,6 +31,9 @@ beforeEach(function () {
     $this->roleResolver = new RoleResolver($this->config);
 
     $this->provider = new class implements ProviderInterface {
+
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function chat(array $messages, array $tools = [], array $options = []): Response
         {
             throw new \RuntimeException('Not implemented');

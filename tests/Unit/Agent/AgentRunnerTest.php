@@ -342,6 +342,8 @@ test('run keeps replayed history and also appends prior history in final system 
         $capturedMessages = [];
         $providerResolver = static function (string $modelString) use (&$capturedMessages): ProviderInterface {
             return new class($capturedMessages) implements ProviderInterface {
+                use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
                 /** @var array<int, array<int, mixed>> */
                 private array $capturedMessages;
 
@@ -468,6 +470,8 @@ test('run keeps replayed history when conversation history prompt mode is disabl
         $capturedMessages = [];
         $providerResolver = static function (string $modelString) use (&$capturedMessages): ProviderInterface {
             return new class($capturedMessages) implements ProviderInterface {
+                use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
                 /** @var array<int, array<int, mixed>> */
                 private array $capturedMessages;
 
@@ -580,6 +584,8 @@ test('run renders actor-backed group speakers distinctly in conversation history
         $capturedMessages = [];
         $providerResolver = static function (string $modelString) use (&$capturedMessages): ProviderInterface {
             return new class($capturedMessages) implements ProviderInterface {
+                use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
                 /** @var array<int, array<int, mixed>> */
                 private array $capturedMessages;
 
@@ -899,6 +905,8 @@ test('sanitizeUsage trusts provider when conversation is null', function () {
 function makeFinishReasonProvider(ProviderFinishReason $finishReason, string $content): ProviderInterface
 {
     return new class($finishReason, $content) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(
             private readonly ProviderFinishReason $finishReason,
             private readonly string $content,
@@ -1060,6 +1068,8 @@ test('runSegment reports a refusal as a segment error', function () {
 function makeCapturingProvider(ArrayObject $captured): ProviderInterface
 {
     return new class($captured) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         /** @param ArrayObject<int, array<int, mixed>> $captured */
         public function __construct(private readonly ArrayObject $captured) {}
 

@@ -13,6 +13,8 @@ use CoquiBot\Coqui\Provider\FallbackProvider;
 function stubProvider(string $model, string $content = 'ok'): ProviderInterface
 {
     return new class ($model, $content) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(
             private readonly string $model,
             private readonly string $content,
@@ -61,6 +63,8 @@ function stubProvider(string $model, string $content = 'ok'): ProviderInterface
 function failingProvider(string $model, \Throwable $error): ProviderInterface
 {
     return new class ($model, $error) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(
             private readonly string $model,
             private readonly \Throwable $error,
@@ -250,6 +254,8 @@ test('isAvailable delegates to primary', function () {
 function partialStreamProvider(string $model, string $partial, \Throwable $error): ProviderInterface
 {
     return new class ($model, $partial, $error) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(
             private readonly string $model,
             private readonly string $partial,
@@ -316,6 +322,8 @@ test('stream does not move to a second fallback once a fallback has yielded a ch
 
 test('stream rethrows without falling back once the primary has yielded a chunk', function () {
     $primary = new class implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function chat(array $messages, array $tools = [], array $options = []): Response
         {
             throw new \RuntimeException('unused');

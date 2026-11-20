@@ -32,6 +32,8 @@ function makeAgentStub(string $event, mixed $data): AgentInterface
         public function provider(): ProviderInterface
         {
             return new class implements ProviderInterface {
+                use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
                 public function chat(array $messages, array $tools = [], array $options = []): Response
                 {
                     return new Response(content: '', finishReason: ProviderFinishReason::Stop, model: 'test');

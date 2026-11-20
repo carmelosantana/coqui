@@ -48,6 +48,8 @@ function buildTestConversation(int $turns): Conversation
 function createTestProvider(string $response): ProviderInterface
 {
     return new class($response) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(private readonly string $response) {}
 
         public function chat(array $messages, array $tools = [], array $options = []): Response

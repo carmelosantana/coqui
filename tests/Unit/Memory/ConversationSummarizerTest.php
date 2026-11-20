@@ -54,6 +54,8 @@ function buildConversation(int $turns): Conversation
 function createFakeProvider(string $summaryResponse): ProviderInterface
 {
     return new class($summaryResponse) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(private readonly string $response) {}
 
         public function chat(array $messages, array $tools = [], array $options = []): Response
@@ -271,6 +273,8 @@ test('summarizeAndPersist returns unchanged result for short conversations', fun
 function createCapturingProvider(string $response): object
 {
     return new class($response) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         /** @var list<array{role: string, content: string}> */
         public array $capturedMessages = [];
 

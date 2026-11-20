@@ -51,6 +51,8 @@ beforeEach(function () {
 
     // Minimal provider stub — never called during construction
     $this->provider = new class implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function chat(array $messages, array $tools = [], array $options = []): Response
         {
             throw new \RuntimeException('Not implemented');

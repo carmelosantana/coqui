@@ -926,6 +926,8 @@ test('startLoop with empty parameters array on non-parameterized definition succ
 function makeLoopGoalProvider(string $responseContent): ProviderInterface
 {
     return new class ($responseContent) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(private readonly string $responseContent) {}
 
         public function chat(array $messages, array $tools = [], array $options = []): Response
@@ -1073,6 +1075,8 @@ test('evaluateIteration goal_bound multi-iteration lifecycle', function () {
     // First call: NOT_ACHIEVED, second call: ACHIEVED
     $callCount = 0;
     $provider = new class ($callCount) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         private int $callCount;
 
         public function __construct(int &$callCount)
