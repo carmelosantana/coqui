@@ -10,6 +10,8 @@ use CoquiBot\Coqui\Agent\StageGateEvaluator;
 function makeGateProvider(string $responseContent): ProviderInterface
 {
     return new class ($responseContent) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(private readonly string $responseContent) {}
         public function chat(array $messages, array $tools = [], array $options = []): Response
         {
@@ -64,6 +66,8 @@ test('judge falls back to keyword parsing on unparseable output', function () {
 
 test('judge falls back to a not-approved verdict when the provider throws', function () {
     $throwing = new class implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function chat(array $messages, array $tools = [], array $options = []): Response { throw new \RuntimeException('boom'); }
         public function stream(array $messages, array $tools = [], array $options = []): iterable { return []; }
         public function structured(array $messages, string $schema, array $options = []): mixed { return null; }

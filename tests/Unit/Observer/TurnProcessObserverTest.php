@@ -33,6 +33,8 @@ function makeTurnAgentStub(string $event, mixed $data): AgentInterface
         public function provider(): ProviderInterface
         {
             return new class implements ProviderInterface {
+                use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
                 public function chat(array $messages, array $tools = [], array $options = []): Response
                 {
                     return new Response(content: '', finishReason: ProviderFinishReason::Stop, model: 'test');
@@ -216,4 +218,30 @@ test('turn process observer adds actor metadata when configured for a group resp
         'actor_name' => 'nova',
         'actor_role' => 'orchestrator',
     ]);
+});
+test('a cancelled run is persisted as cancelled, not error', function () {
+    $this->observer->update(makeTurnAgentStub('agent.error', 'Task cancelled'));
+    $this->observer->update(makeTurnAgentStub('agent.finish', new \CarmeloSantana\PHPAgents\Agent\Event\RunFinish(
+        \CarmeloSantana\PHPAgents\Enum\AgentFinishReason::Cancelled,
+        new \CarmeloSantana\PHPAgents\Provider\Usage(),
+        1,
+        'test-model',
+    )));
+
+    $types = array_column($this->storage->getTurnEvents($this->turnProcessId), 'event_type');
+    expect($types)->toContain('cancelled')
+        ->and($types)->not->toContain('error');
+});
+
+test('a provider error is still persisted as error', function () {
+    $this->observer->update(makeTurnAgentStub('agent.error', 'Provider error: HTTP 500'));
+    $this->observer->update(makeTurnAgentStub('agent.finish', new \CarmeloSantana\PHPAgents\Agent\Event\RunFinish(
+        \CarmeloSantana\PHPAgents\Enum\AgentFinishReason::Error,
+        new \CarmeloSantana\PHPAgents\Provider\Usage(),
+        1,
+        'test-model',
+    )));
+
+    $types = array_column($this->storage->getTurnEvents($this->turnProcessId), 'event_type');
+    expect($types)->toBe(['error']);
 });

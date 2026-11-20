@@ -283,7 +283,7 @@ final class OrchestratorAgent extends AbstractAgent
                     fn(string $model) => $sharedFactory->create($model),
                     $fallbacks,
                 );
-                $effectiveProvider = new FallbackProvider($provider, $fallbackProviders);
+                $effectiveProvider = new FallbackProvider($provider, $fallbackProviders, $cancellationToken);
             }
         }
 

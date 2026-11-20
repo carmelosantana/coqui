@@ -30,6 +30,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 function childPolicyProvider(int &$calls): ProviderInterface
 {
     return new class ($calls) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         private int $calls;
 
         public function __construct(int &$calls)

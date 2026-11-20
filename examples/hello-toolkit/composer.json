@@ -15,7 +15,7 @@
     },
     "require": {
         "php": "^8.4",
-        "carmelosantana/php-agents": "^0.17 || @dev"
+        "carmelosantana/php-agents": "^0.18 || @dev"
     },
     "extra": {
         "php-agents": {

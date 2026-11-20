@@ -342,6 +342,8 @@ test('run keeps replayed history and also appends prior history in final system 
         $capturedMessages = [];
         $providerResolver = static function (string $modelString) use (&$capturedMessages): ProviderInterface {
             return new class($capturedMessages) implements ProviderInterface {
+                use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
                 /** @var array<int, array<int, mixed>> */
                 private array $capturedMessages;
 
@@ -468,6 +470,8 @@ test('run keeps replayed history when conversation history prompt mode is disabl
         $capturedMessages = [];
         $providerResolver = static function (string $modelString) use (&$capturedMessages): ProviderInterface {
             return new class($capturedMessages) implements ProviderInterface {
+                use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
                 /** @var array<int, array<int, mixed>> */
                 private array $capturedMessages;
 
@@ -580,6 +584,8 @@ test('run renders actor-backed group speakers distinctly in conversation history
         $capturedMessages = [];
         $providerResolver = static function (string $modelString) use (&$capturedMessages): ProviderInterface {
             return new class($capturedMessages) implements ProviderInterface {
+                use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
                 /** @var array<int, array<int, mixed>> */
                 private array $capturedMessages;
 
@@ -899,6 +905,8 @@ test('sanitizeUsage trusts provider when conversation is null', function () {
 function makeFinishReasonProvider(ProviderFinishReason $finishReason, string $content): ProviderInterface
 {
     return new class($finishReason, $content) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(
             private readonly ProviderFinishReason $finishReason,
             private readonly string $content,
@@ -1060,6 +1068,8 @@ test('runSegment reports a refusal as a segment error', function () {
 function makeCapturingProvider(ArrayObject $captured): ProviderInterface
 {
     return new class($captured) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         /** @param ArrayObject<int, array<int, mixed>> $captured */
         public function __construct(private readonly ArrayObject $captured) {}
 
@@ -1187,6 +1197,87 @@ test('run refuses an attached image outside the allowed roots without failing th
             ->and((string) ($content[0]['text'] ?? ''))->toContain('pic.png was not attached');
     } finally {
         cleanupTestTree($outside);
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+// --- cancellation (php-agents 0.18: AgentFinishReason::Cancelled) ---
+
+test('run ends a turn cancelled mid-stream without a turn error and keeps the streamed text', function () {
+    $fixture = createAgentRunnerFixture();
+    $token = new \CoquiBot\Coqui\Api\ProcessCancellationToken();
+
+    // Streams some text, then the user presses Stop: the token is set and the
+    // aborted transport surfaces as a network error.
+    $provider = new class($token) implements ProviderInterface {
+        public function __construct(private readonly \CoquiBot\Coqui\Api\ProcessCancellationToken $token) {}
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            throw new \LogicException('not used');
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            throw new \LogicException('not used');
+        }
+
+        public function streamEvents(array $messages, array $tools = [], array $options = []): iterable
+        {
+            yield new \CarmeloSantana\PHPAgents\Provider\Stream\TextDelta('Partial answer');
+            $this->token->cancel();
+            throw new \RuntimeException('Network error: transfer aborted');
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return [];
+        }
+
+        public function models(): array
+        {
+            return [];
+        }
+
+        public function isAvailable(): bool
+        {
+            return true;
+        }
+
+        public function getModel(): string
+        {
+            return 'test/mock';
+        }
+
+        public function withModel(string $model): static
+        {
+            return $this;
+        }
+    };
+
+    try {
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($fixture['config']),
+            config: $fixture['config'],
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($fixture['config']),
+            deps: new AgentRunnerDependencies(
+                providerResolver: static fn(string $model): ProviderInterface => $provider,
+            ),
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $result = $runner->run('Do the thing', $sessionId, allowAllPolicy(), $token);
+
+        expect($result->error)->toBeNull()
+            ->and($result->content)->toContain('Partial answer');
+    } finally {
         cleanupAgentRunnerFixture($fixture);
     }
 });

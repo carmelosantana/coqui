@@ -32,6 +32,8 @@ function makeAgentStub(string $event, mixed $data): AgentInterface
         public function provider(): ProviderInterface
         {
             return new class implements ProviderInterface {
+                use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
                 public function chat(array $messages, array $tools = [], array $options = []): Response
                 {
                     return new Response(content: '', finishReason: ProviderFinishReason::Stop, model: 'test');
@@ -166,4 +168,18 @@ test('update ignores non-AgentInterface subjects', function () {
 
     $events = $this->storage->getTaskEvents($this->taskId);
     expect($events)->toBeEmpty();
+});
+
+test('a cancelled run is recorded as a cancelled task event, not error', function () {
+    $this->observer->update(makeAgentStub('agent.error', 'Task cancelled'));
+    $this->observer->update(makeAgentStub('agent.finish', new \CarmeloSantana\PHPAgents\Agent\Event\RunFinish(
+        \CarmeloSantana\PHPAgents\Enum\AgentFinishReason::Cancelled,
+        new \CarmeloSantana\PHPAgents\Provider\Usage(),
+        1,
+        'test-model',
+    )));
+
+    $types = array_column($this->storage->getTaskEvents($this->taskId), 'event_type');
+    expect($types)->toContain('cancelled')
+        ->and($types)->not->toContain('error');
 });

@@ -14,6 +14,8 @@ use CoquiBot\Coqui\Agent\GoalEvaluator;
 function makeGoalProvider(string $responseContent, ?array &$capturedMessages = null): ProviderInterface
 {
     return new class ($responseContent, $capturedMessages) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(
             private readonly string $responseContent,
             private ?array &$capturedMessages,
@@ -37,6 +39,8 @@ function makeGoalProvider(string $responseContent, ?array &$capturedMessages = n
 function makeThrowingGoalProvider(\Throwable $exception): ProviderInterface
 {
     return new class ($exception) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(private readonly \Throwable $exception) {}
 
         public function chat(array $messages, array $tools = [], array $options = []): Response

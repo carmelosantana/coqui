@@ -52,6 +52,11 @@ final class SseObserver implements SplObserver
 
     public function handleEvent(string $event, mixed $data): void
     {
+        // A cancel is reported once, from agent.finish, not as an error.
+        if (RunCancellation::isCancelError($event, $data)) {
+            return;
+        }
+
         match ($event) {
             'agent.start' => $this->writeEvent('agent_start', []),
 
@@ -80,6 +85,10 @@ final class SseObserver implements SplObserver
             'agent.error' => $this->writeEvent('error', [
                 'message' => (string) $data,
             ]),
+
+            'agent.finish' => RunCancellation::isCancelledFinish($event, $data)
+                ? $this->writeEvent('cancelled', ['message' => RunCancellation::MESSAGE])
+                : null,
 
             'agent.warning' => $this->writeEvent('warning', [
                 'message' => is_string($data) ? $data : '',

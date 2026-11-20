@@ -14,6 +14,8 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 function gateProviderReturning(string $json): ProviderInterface
 {
     return new class ($json) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
         public function __construct(private readonly string $json) {}
         public function chat(array $messages, array $tools = [], array $options = []): Response
         {

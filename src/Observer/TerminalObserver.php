@@ -106,6 +106,11 @@ final class TerminalObserver implements SplObserver
             $this->clearStatusLine();
         }
 
+        // A cancel is reported once, from agent.finish, not as an error.
+        if (RunCancellation::isCancelError($event, $data)) {
+            return;
+        }
+
         match ($event) {
             'agent.start' => (function () use ($indent): void {
                 $this->hasStreamedText = false;
@@ -147,6 +152,10 @@ final class TerminalObserver implements SplObserver
             'agent.error' => $this->output->writeln("{$indent}<fg=red>✗ Error: {$data}</>"),
 
             'agent.warning' => $this->output->writeln("{$indent}<fg=yellow>⚠ {$data}</>"),
+
+            'agent.finish' => RunCancellation::isCancelledFinish($event, $data)
+                ? $this->output->writeln("{$indent}<fg=yellow>⏹ Cancelled</>")
+                : null,
 
             'agent.budget_warning' => $this->handleBudgetWarning($data, $indent),
 

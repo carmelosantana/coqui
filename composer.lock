@@ -4,7 +4,7 @@
     "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
     "This file is @generated automatically"
   ],
-  "content-hash": "f22f18c6ae74c3ba302735f7f63ef948",
+  "content-hash": "59a7009c6b2a8b001fd7546ee7de1061",
   "packages": [
     {
       "name": "carmelosantana/coqui-toolkit-images",
@@ -93,19 +93,20 @@
     },
     {
       "name": "carmelosantana/php-agents",
-      "version": "v0.17.0",
+      "version": "v0.18.0",
       "source": {
         "type": "git",
         "url": "https://github.com/carmelosantana/php-agents.git",
-        "reference": "f8151ae2460cfd1311885a3257b867b933796dc5"
+        "reference": "648c1361e8ffb811ab5eb8c78959f95fa1fb9c2f"
       },
       "dist": {
         "type": "zip",
-        "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/f8151ae2460cfd1311885a3257b867b933796dc5",
-        "reference": "f8151ae2460cfd1311885a3257b867b933796dc5",
+        "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/648c1361e8ffb811ab5eb8c78959f95fa1fb9c2f",
+        "reference": "648c1361e8ffb811ab5eb8c78959f95fa1fb9c2f",
         "shasum": ""
       },
       "require": {
+        "ext-mbstring": "*",
         "php": "^8.4",
         "psr/log": "^3.0",
         "symfony/http-client": "^7.0 || ^8.0"
@@ -146,9 +147,9 @@
       ],
       "support": {
         "issues": "https://github.com/carmelosantana/php-agents/issues",
-        "source": "https://github.com/carmelosantana/php-agents/tree/v0.17.0"
+        "source": "https://github.com/carmelosantana/php-agents/tree/v0.18.0"
       },
-      "time": "2026-11-18T20:20:10+00:00"
+      "time": "2026-11-20T02:55:52+00:00"
     },
     {
       "name": "carmelosantana/php-pathhelper",

@@ -1879,7 +1879,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
     /**
      * Map a run that ended without an answer to a turn error message.
      * Null for normal endings, including iteration and budget exits, which
-     * keep their own flags.
+     * keep their own flags, and for a cancel: the caller owns the token and
+     * reports the Stop itself, and the content is the text streamed so far.
      */
     private function resolveFailedStopError(Output $output): ?string
     {
@@ -1892,7 +1893,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
             AgentFinishReason::Done,
             AgentFinishReason::MaxIterations,
             AgentFinishReason::BudgetExhausted,
-            AgentFinishReason::EmptyResponse => null,
+            AgentFinishReason::EmptyResponse,
+            AgentFinishReason::Cancelled => null,
         };
     }
 

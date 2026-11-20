@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Provider;
 
+use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\MessageInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Provider\Response;
+use CarmeloSantana\PHPAgents\Provider\Stream\StreamEvent;
+use CarmeloSantana\PHPAgents\Provider\Stream\Tick;
 use CoquiBot\Coqui\Exception\ProviderErrorClassifier;
 
 /**
@@ -16,6 +19,10 @@ use CoquiBot\Coqui\Exception\ProviderErrorClassifier;
  * Wraps a primary provider and transparently falls through to fallback
  * providers on retryable errors (429, 5xx, network failures). Non-retryable
  * errors (401, 403, 400, 404) are thrown immediately.
+ *
+ * A cancel stops failover: once the optional cancellation token is set, the
+ * error that ended the request is rethrown instead of starting another one,
+ * because a cancel that aborts the transport surfaces as a network error.
  *
  * The optional $onNotify callback receives warning strings for observer
  * integration (e.g. "Primary provider failed (rate_limited). Attempting
@@ -29,10 +36,12 @@ final class FallbackProvider implements ProviderInterface
     /**
      * @param ProviderInterface $primary The primary provider to try first
      * @param ProviderInterface[] $fallbacks Fallback providers in priority order
+     * @param CancellationTokenInterface|null $cancellationToken The run's token; no fallback starts once it is set
      */
     public function __construct(
         private readonly ProviderInterface $primary,
         private readonly array $fallbacks,
+        private readonly ?CancellationTokenInterface $cancellationToken = null,
     ) {}
 
     /**
@@ -68,6 +77,25 @@ final class FallbackProvider implements ProviderInterface
                 throw $e;
             }
             yield from $this->attemptFallbackStream($e, $messages, $tools, $options);
+        }
+    }
+
+    public function streamEvents(array $messages, array $tools = [], array $options = []): iterable
+    {
+        // Same rule as stream(): fall back only before the primary sends output.
+        // Idle ticks carry none, so they pass through and keep the agent's
+        // cancellation and run-limit checks alive without ruling out failover.
+        $yielded = false;
+        try {
+            foreach ($this->primary->streamEvents($messages, $tools, $options) as $event) {
+                $yielded = $yielded || !$event instanceof Tick;
+                yield $event;
+            }
+        } catch (\Throwable $e) {
+            if ($yielded) {
+                throw $e;
+            }
+            yield from $this->attemptFallbackStreamEvents($e, $messages, $tools, $options);
         }
     }
 
@@ -115,7 +143,7 @@ final class FallbackProvider implements ProviderInterface
         array $tools,
         array $options,
     ): Response {
-        $this->guardNonRetryable($originalError);
+        $this->guardFallback($originalError);
         $this->notifyFallbackStart($originalError);
 
         foreach ($this->fallbacks as $fallback) {
@@ -124,11 +152,8 @@ final class FallbackProvider implements ProviderInterface
                 $this->notify(sprintf('Fallback to %s succeeded.', $fallback->getModel()));
                 return $result;
             } catch (\Throwable $e) {
-                $this->notify(sprintf(
-                    'Fallback model %s also failed: %s',
-                    $fallback->getModel(),
-                    $e->getMessage(),
-                ));
+                $this->notifyFallbackFailed($fallback, $e);
+                $this->guardCancelled($originalError);
             }
         }
 
@@ -147,7 +172,7 @@ final class FallbackProvider implements ProviderInterface
         array $tools,
         array $options,
     ): iterable {
-        $this->guardNonRetryable($originalError);
+        $this->guardFallback($originalError);
         $this->notifyFallbackStart($originalError);
 
         foreach ($this->fallbacks as $fallback) {
@@ -163,11 +188,44 @@ final class FallbackProvider implements ProviderInterface
                 if ($yielded) {
                     throw $e;
                 }
-                $this->notify(sprintf(
-                    'Fallback model %s also failed: %s',
-                    $fallback->getModel(),
-                    $e->getMessage(),
-                ));
+                $this->notifyFallbackFailed($fallback, $e);
+                $this->guardCancelled($originalError);
+            }
+        }
+
+        throw $originalError;
+    }
+
+    /**
+     * @param MessageInterface[] $messages
+     * @param ToolInterface[] $tools
+     * @param array<string, mixed> $options
+     * @return iterable<StreamEvent>
+     */
+    private function attemptFallbackStreamEvents(
+        \Throwable $originalError,
+        array $messages,
+        array $tools,
+        array $options,
+    ): iterable {
+        $this->guardFallback($originalError);
+        $this->notifyFallbackStart($originalError);
+
+        foreach ($this->fallbacks as $fallback) {
+            $yielded = false;
+            try {
+                foreach ($fallback->streamEvents($messages, $tools, $options) as $event) {
+                    $yielded = $yielded || !$event instanceof Tick;
+                    yield $event;
+                }
+                $this->notify(sprintf('Fallback to %s succeeded.', $fallback->getModel()));
+                return;
+            } catch (\Throwable $e) {
+                if ($yielded) {
+                    throw $e;
+                }
+                $this->notifyFallbackFailed($fallback, $e);
+                $this->guardCancelled($originalError);
             }
         }
 
@@ -184,7 +242,7 @@ final class FallbackProvider implements ProviderInterface
         string $schema,
         array $options,
     ): mixed {
-        $this->guardNonRetryable($originalError);
+        $this->guardFallback($originalError);
         $this->notifyFallbackStart($originalError);
 
         foreach ($this->fallbacks as $fallback) {
@@ -193,11 +251,8 @@ final class FallbackProvider implements ProviderInterface
                 $this->notify(sprintf('Fallback to %s succeeded.', $fallback->getModel()));
                 return $result;
             } catch (\Throwable $e) {
-                $this->notify(sprintf(
-                    'Fallback model %s also failed: %s',
-                    $fallback->getModel(),
-                    $e->getMessage(),
-                ));
+                $this->notifyFallbackFailed($fallback, $e);
+                $this->guardCancelled($originalError);
             }
         }
 
@@ -205,13 +260,34 @@ final class FallbackProvider implements ProviderInterface
     }
 
     /**
-     * Re-throw immediately if the error is not retryable.
+     * Re-throw immediately if the error is not retryable or the run was cancelled.
      */
-    private function guardNonRetryable(\Throwable $e): void
+    private function guardFallback(\Throwable $e): void
     {
+        $this->guardCancelled($e);
         if (!ProviderErrorClassifier::isRetryable($e)) {
             throw $e;
         }
+    }
+
+    /**
+     * Re-throw the error that ended the request once the run is cancelled, so no
+     * further request starts. The agent ends such a run Cancelled, not Error.
+     */
+    private function guardCancelled(\Throwable $e): void
+    {
+        if ($this->cancellationToken?->isCancelled() === true) {
+            throw $e;
+        }
+    }
+
+    private function notifyFallbackFailed(ProviderInterface $fallback, \Throwable $e): void
+    {
+        $this->notify(sprintf(
+            'Fallback model %s also failed: %s',
+            $fallback->getModel(),
+            $e->getMessage(),
+        ));
     }
 
     private function notifyFallbackStart(\Throwable $originalError): void
