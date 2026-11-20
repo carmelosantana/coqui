@@ -376,3 +376,239 @@ test('stream rethrows without falling back once the primary has yielded a chunk'
     expect($chunks)->toBe(['Half an ans'])
         ->and($thrown?->getMessage())->toBe('Idle timeout reached');
 });
+
+// --- streamEvents() tests ---
+
+/**
+ * A provider whose streamEvents() yields the given events, then throws $error when set.
+ * Records each call's options so forwarding can be asserted.
+ *
+ * @param list<\CarmeloSantana\PHPAgents\Provider\Stream\StreamEvent> $events
+ */
+function eventsProvider(string $model, array $events, ?\Throwable $error = null): ProviderInterface
+{
+    return new class ($model, $events, $error) implements ProviderInterface {
+        /** @var list<array<string, mixed>> */
+        public array $calls = [];
+
+        public function __construct(
+            private readonly string $model,
+            private readonly array $events,
+            private readonly ?\Throwable $error,
+        ) {}
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            $this->calls[] = $options;
+            if ($this->error !== null) {
+                throw $this->error;
+            }
+
+            return new Response(content: 'chat', finishReason: ProviderFinishReason::Stop, model: $this->model);
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            throw new \LogicException('stream() must not be called; the agent iterates streamEvents()');
+        }
+
+        public function streamEvents(array $messages, array $tools = [], array $options = []): iterable
+        {
+            $this->calls[] = $options;
+            foreach ($this->events as $event) {
+                yield $event;
+            }
+            if ($this->error !== null) {
+                throw $this->error;
+            }
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return null;
+        }
+
+        public function models(): array
+        {
+            return [];
+        }
+
+        public function isAvailable(): bool
+        {
+            return true;
+        }
+
+        public function getModel(): string
+        {
+            return $this->model;
+        }
+
+        public function withModel(string $model): static
+        {
+            return $this;
+        }
+    };
+}
+
+function cancellableToken(): \CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface
+{
+    return new class implements \CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface {
+        public bool $cancelled = false;
+
+        public function isCancelled(): bool
+        {
+            return $this->cancelled;
+        }
+    };
+}
+
+test('streamEvents forwards the primary events and options unchanged, tool input and ticks included', function () {
+    $usage = new \CarmeloSantana\PHPAgents\Provider\Usage(promptTokens: 12, completionTokens: 3, totalTokens: 15, cacheReadTokens: 4);
+    $events = [
+        new \CarmeloSantana\PHPAgents\Provider\Stream\Tick(),
+        new \CarmeloSantana\PHPAgents\Provider\Stream\TextDelta('Hi'),
+        new \CarmeloSantana\PHPAgents\Provider\Stream\ToolInputStart(0, 'call_1', 'search'),
+        new \CarmeloSantana\PHPAgents\Provider\Stream\ToolInputDelta(0, 'call_1', '{"q":"x"}'),
+        new \CarmeloSantana\PHPAgents\Provider\Stream\ToolInputEnd(0, 'call_1', 'search', ['q' => 'x']),
+        new \CarmeloSantana\PHPAgents\Provider\Stream\Finish(ProviderFinishReason::ToolUse, 'tool_calls', $usage, 'primary'),
+    ];
+    $primary = eventsProvider('primary', $events);
+    $fallback = eventsProvider('fallback', []);
+
+    $provider = new FallbackProvider($primary, [$fallback]);
+    $seen = iterator_to_array($provider->streamEvents([], [], ['temperature' => 0.2]), false);
+
+    expect($seen)->toBe($events)
+        ->and($primary->calls)->toBe([['temperature' => 0.2]])
+        ->and($fallback->calls)->toBe([]);
+});
+
+test('streamEvents falls back on a retryable error raised before any output, ticks aside', function () {
+    $primary = eventsProvider('primary', [new \CarmeloSantana\PHPAgents\Provider\Stream\Tick()], new \RuntimeException('HTTP 503 Service Unavailable'));
+    $finish = new \CarmeloSantana\PHPAgents\Provider\Stream\Finish(ProviderFinishReason::Stop, model: 'fallback');
+    $fallback = eventsProvider('fallback', [new \CarmeloSantana\PHPAgents\Provider\Stream\TextDelta('from fallback'), $finish]);
+
+    $messages = [];
+    $provider = new FallbackProvider($primary, [$fallback]);
+    $provider->setOnNotify(function (string $msg) use (&$messages) {
+        $messages[] = $msg;
+    });
+    $seen = iterator_to_array($provider->streamEvents([], [], ['max_tokens' => 9]), false);
+
+    expect(array_map(static fn($e) => $e::class, $seen))->toBe([
+        \CarmeloSantana\PHPAgents\Provider\Stream\Tick::class,
+        \CarmeloSantana\PHPAgents\Provider\Stream\TextDelta::class,
+        \CarmeloSantana\PHPAgents\Provider\Stream\Finish::class,
+    ])
+        ->and($seen[2])->toBe($finish)
+        ->and($fallback->calls)->toBe([['max_tokens' => 9]])
+        ->and($messages[1])->toContain('Fallback to fallback succeeded');
+});
+
+test('streamEvents rethrows without falling back once the primary has streamed output', function () {
+    $primary = eventsProvider('primary', [new \CarmeloSantana\PHPAgents\Provider\Stream\ToolInputStart(0, 'call_1', 'search')], new \RuntimeException('Idle timeout reached'));
+    $fallback = eventsProvider('fallback', []);
+
+    $provider = new FallbackProvider($primary, [$fallback]);
+
+    expect(fn() => iterator_to_array($provider->streamEvents([]), false))
+        ->toThrow(\RuntimeException::class, 'Idle timeout reached')
+        ->and($fallback->calls)->toBe([]);
+});
+
+test('streamEvents throws immediately on a non-retryable error', function () {
+    $primary = eventsProvider('primary', [], new \RuntimeException('HTTP 401 Unauthorized'));
+    $fallback = eventsProvider('fallback', []);
+
+    $provider = new FallbackProvider($primary, [$fallback]);
+
+    expect(fn() => iterator_to_array($provider->streamEvents([]), false))
+        ->toThrow(\RuntimeException::class, 'HTTP 401 Unauthorized')
+        ->and($fallback->calls)->toBe([]);
+});
+
+test('a cancel that aborts the primary stream does not start a fallback request', function () {
+    $token = cancellableToken();
+    $token->cancelled = true;
+    // The aborted transport surfaces as a retryable network error.
+    $primary = eventsProvider('primary', [], new \RuntimeException('Network error: transfer aborted'));
+    $fallback = eventsProvider('fallback', []);
+
+    $messages = [];
+    $provider = new FallbackProvider($primary, [$fallback], $token);
+    $provider->setOnNotify(function (string $msg) use (&$messages) {
+        $messages[] = $msg;
+    });
+
+    expect(fn() => iterator_to_array($provider->streamEvents([]), false))
+        ->toThrow(\RuntimeException::class, 'Network error: transfer aborted')
+        ->and($fallback->calls)->toBe([])
+        ->and($messages)->toBe([]);
+});
+
+test('a cancel during a failing fallback stops before the next fallback', function () {
+    $token = cancellableToken();
+    $primary = eventsProvider('primary', [], new \RuntimeException('HTTP 502 Bad Gateway'));
+    $first = new class ($token) implements ProviderInterface {
+        use \CarmeloSantana\PHPAgents\Provider\Stream\StreamsEventsFromResponses;
+
+        public function __construct(private readonly object $token) {}
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            $this->token->cancelled = true;
+            throw new \RuntimeException('HTTP 503 Service Unavailable');
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            $this->token->cancelled = true;
+            throw new \RuntimeException('HTTP 503 Service Unavailable');
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return null;
+        }
+
+        public function models(): array
+        {
+            return [];
+        }
+
+        public function isAvailable(): bool
+        {
+            return true;
+        }
+
+        public function getModel(): string
+        {
+            return 'fallback-1';
+        }
+
+        public function withModel(string $model): static
+        {
+            return $this;
+        }
+    };
+    $second = eventsProvider('fallback-2', []);
+
+    $provider = new FallbackProvider($primary, [$first, $second], $token);
+
+    expect(fn() => iterator_to_array($provider->streamEvents([]), false))
+        ->toThrow(\RuntimeException::class, 'HTTP 502 Bad Gateway')
+        ->and($second->calls)->toBe([]);
+});
+
+test('chat and structured do not fall back once the token is cancelled', function () {
+    $token = cancellableToken();
+    $token->cancelled = true;
+    $primary = failingProvider('primary', new \RuntimeException('HTTP 503 Service Unavailable'));
+    $fallback = eventsProvider('fallback', []);
+
+    $provider = new FallbackProvider($primary, [$fallback], $token);
+
+    expect(fn() => $provider->chat([]))->toThrow(\RuntimeException::class, 'HTTP 503')
+        ->and(fn() => $provider->structured([], '{}'))->toThrow(\RuntimeException::class, 'HTTP 503')
+        ->and($fallback->calls)->toBe([]);
+});
