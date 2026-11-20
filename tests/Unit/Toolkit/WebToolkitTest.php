@@ -250,6 +250,65 @@ test('http_request blocks malformed URLs', function () {
     expect($result->status)->toBe(ToolResultStatus::Error);
 });
 
+/**
+ * A client that behaves like curl: it follows redirects itself unless the
+ * caller sets max_redirects to 0, in which case it returns the 3xx.
+ */
+function webRedirectingClient(string $from, string $to, string $finalBody): MockHttpClient
+{
+    return new MockHttpClient(static function (string $method, string $url, array $options) use ($from, $to, $finalBody): MockResponse {
+        if ($url === $from && ($options['max_redirects'] ?? 20) > 0) {
+            return new MockResponse($finalBody, ['http_code' => 200, 'url' => $to]);
+        }
+        if ($url === $from) {
+            return new MockResponse('', ['http_code' => 302, 'response_headers' => ['Location: ' . $to]]);
+        }
+
+        return new MockResponse($finalBody, ['http_code' => 200]);
+    });
+}
+
+test('http_request blocks a redirect from a public host to a private address', function () {
+    $from = 'http://93.184.215.14/go';
+    $to = 'http://169.254.169.254/latest/meta-data/iam/security-credentials/';
+    $toolkit = new WebToolkit(httpClient: webRedirectingClient($from, $to, 'METADATA-SECRET'));
+
+    $result = webFindTool($toolkit, 'http_request')->execute(['url' => $from]);
+
+    expect($result->content)->not->toContain('METADATA-SECRET');
+});
+
+test('http_request still follows a redirect between public hosts', function () {
+    $from = 'http://93.184.215.14/go';
+    $to = 'http://93.184.216.34/final';
+    $toolkit = new WebToolkit(httpClient: webRedirectingClient($from, $to, 'PUBLIC-OK'));
+
+    $result = webFindTool($toolkit, 'http_request')->execute(['url' => $from]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($result->content)->toContain('PUBLIC-OK');
+});
+
+test('http_download blocks a redirect from a public host to a private address', function () {
+    $workspace = webCreateTempPath('coqui-web-redirect');
+    mkdir($workspace, 0755, true);
+
+    try {
+        $from = 'http://93.184.215.14/file';
+        $to = 'http://127.0.0.1:3300/api/v1/config';
+        $toolkit = new WebToolkit(httpClient: webRedirectingClient($from, $to, 'LOCAL-API-SECRET'), workspacePath: $workspace);
+
+        $result = webFindTool($toolkit, 'http_download')->execute(['url' => $from]);
+
+        $saved = glob($workspace . '/downloads/*') ?: [];
+        $contents = implode('', array_map(static fn(string $f): string => (string) file_get_contents($f), $saved));
+        expect($contents)->not->toContain('LOCAL-API-SECRET')
+            ->and($result->content)->not->toContain('LOCAL-API-SECRET');
+    } finally {
+        webDeletePath($workspace);
+    }
+});
+
 test('http_request allows private networks when configured', function () {
     $mockResponse = new MockResponse('internal data', ['http_code' => 200]);
     $httpClient = new MockHttpClient($mockResponse);

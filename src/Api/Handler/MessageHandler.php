@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
+use CoquiBot\Coqui\Support\AttachmentDirectory;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
@@ -191,7 +192,7 @@ final readonly class MessageHandler
      */
     private function materializeAttachment(string $contentRef, string $bytes): ?string
     {
-        $dir = sys_get_temp_dir() . '/coqui-attachments';
+        $dir = AttachmentDirectory::path();
         if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) {
             return null;
         }

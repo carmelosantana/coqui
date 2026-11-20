@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Agent;
 
+use CarmeloSantana\PHPAgents\Image\ImageInputException;
+use CarmeloSantana\PHPAgents\Image\LocalImageResolver;
+use CoquiBot\Coqui\Support\AttachmentDirectory;
 use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
@@ -404,6 +407,12 @@ final class AgentRunner implements AgentTurnRunnerInterface
             ['iterationLimitReached' => $iterationLimitReached, 'budgetExhausted' => $budgetExhausted] =
                 $this->resolveExitFlags($output, $resolvedMaxIterations);
 
+            // A refusal, content filter, context overflow or provider failure
+            // ends the run without an answer; report it as a turn error and
+            // never leave the user with an empty response.
+            $turnError = $this->resolveFailedStopError($output);
+            $responseContent = $output->content !== '' ? $output->content : ($turnError ?? '');
+
             // Batch all post-turn DB writes in a single transaction to reduce fsync overhead
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
             $toolsUsed = $this->extractToolsUsed($output->conversation, $history->count());
@@ -419,7 +428,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
 
                 // Save final assistant response if not already persisted
                 if ($output->conversation === null) {
-                    $this->storage->addMessage($sessionId, 'assistant', $output->content, turnId: $turnId);
+                    $this->storage->addMessage($sessionId, 'assistant', $responseContent, turnId: $turnId);
                 }
 
                 // Update session token count
@@ -428,7 +437,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 // Complete turn with metadata
                 $this->storage->completeTurn(
                     turnId: $turnId,
-                    responseText: $output->content,
+                    responseText: $responseContent,
                     promptTokens: $usage->promptTokens,
                     completionTokens: $usage->completionTokens,
                     totalTokens: $usage->totalTokens,
@@ -556,7 +565,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             }
 
             $turnResult = new AgentTurnResult(
-                content: $output->content,
+                content: $responseContent,
                 iterations: $output->iterations,
                 promptTokens: $usage->promptTokens,
                 completionTokens: $usage->completionTokens,
@@ -571,6 +580,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 fileEdits: $fileEdits,
                 reviewFeedback: $reviewFeedback,
                 reviewApproved: $reviewApproved,
+                error: $turnError,
                 deferredWork: $deferredWork,
                 backgroundTasks: $backgroundTasks,
             );
@@ -756,6 +766,8 @@ final class AgentRunner implements AgentTurnRunnerInterface
             $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole, $persona);
             ['iterationLimitReached' => $iterationLimitReached, 'budgetExhausted' => $budgetExhausted] =
                 $this->resolveExitFlags($output, $resolvedMaxIterations);
+            $turnError = $this->resolveFailedStopError($output);
+            $responseContent = $output->content !== '' ? $output->content : ($turnError ?? '');
 
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
             $toolsUsed = $this->extractToolsUsed($output->conversation, $history->count());
@@ -779,7 +791,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                     $this->storage->addMessage(
                         $sessionId,
                         'assistant',
-                        $output->content,
+                        $responseContent,
                         turnId: $turnId,
                         actorName: $actorName,
                         actorRole: $actorRole,
@@ -898,7 +910,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             }
 
             return new AgentTurnResult(
-                content: $output->content,
+                content: $responseContent,
                 iterations: $output->iterations,
                 promptTokens: $usage->promptTokens,
                 completionTokens: $usage->completionTokens,
@@ -913,6 +925,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
                 fileEdits: $fileEdits,
                 reviewFeedback: $reviewFeedback,
                 reviewApproved: $reviewApproved,
+                error: $turnError,
                 deferredWork: $deferredWork,
                 backgroundTasks: $backgroundTasks,
             );
@@ -1713,8 +1726,26 @@ final class AgentRunner implements AgentTurnRunnerInterface
 
         $enrichedPrompt = $textContext !== '' ? $prompt . $textContext : $prompt;
 
-        if ($imagePaths !== []) {
-            return UserMessage::withImages($enrichedPrompt, $imagePaths);
+        if ($imagePaths === []) {
+            return new UserMessage($enrichedPrompt);
+        }
+
+        // php-agents reads images only through a resolver. Allow the API
+        // attachment directory and the workspace; an image elsewhere (or one
+        // the policy refuses) is left out with a note instead of failing the turn.
+        $resolver = new LocalImageResolver([AttachmentDirectory::path(), $this->workspacePath]);
+        $accepted = [];
+        foreach ($imagePaths as $imagePath) {
+            try {
+                $resolver->resolve($imagePath);
+                $accepted[] = $imagePath;
+            } catch (ImageInputException $e) {
+                $enrichedPrompt .= sprintf("\n\n[Image %s was not attached: %s]", basename($imagePath), $e->getMessage());
+            }
+        }
+
+        if ($accepted !== []) {
+            return UserMessage::withImages($enrichedPrompt, $accepted, $resolver);
         }
 
         return new UserMessage($enrichedPrompt);
@@ -1835,6 +1866,26 @@ final class AgentRunner implements AgentTurnRunnerInterface
             completionTokens: $completionTokens,
             totalTokens: $promptTokens + $completionTokens,
         );
+    }
+
+    /**
+     * Map a run that ended without an answer to a turn error message.
+     * Null for normal endings, including iteration and budget exits, which
+     * keep their own flags.
+     */
+    private function resolveFailedStopError(Output $output): ?string
+    {
+        return match ($output->finishReason) {
+            AgentFinishReason::Refusal => 'The model declined to respond (refusal).',
+            AgentFinishReason::ContentFilter => "The provider's content filter blocked the response.",
+            AgentFinishReason::ContextWindowExceeded => "The conversation exceeded the model's context window. Summarize the session or start a new one.",
+            AgentFinishReason::Error => $output->content !== '' ? $output->content : 'Provider error.',
+            AgentFinishReason::Stop,
+            AgentFinishReason::Done,
+            AgentFinishReason::MaxIterations,
+            AgentFinishReason::BudgetExhausted,
+            AgentFinishReason::EmptyResponse => null,
+        };
     }
 
     /**

@@ -23,6 +23,7 @@ final class WebToolkit implements ToolkitInterface
     private const DEFAULT_TIMEOUT_SECONDS = CoquiDefaults::HTTP_TIMEOUT_SECONDS;
     private const DEFAULT_RETRIES = 0;
     private const MAX_RETRIES = 5;
+    private const MAX_REDIRECTS = 5;
     private const RESPONSE_PREVIEW_BYTES = 10000;
     private const DOWNLOADS_DIR = 'downloads';
 
@@ -377,6 +378,80 @@ final class WebToolkit implements ToolkitInterface
      * @param array<string, mixed> $options
      */
     private function performRequest(string $method, string $url, array $options, int $retries): \Symfony\Contracts\HttpClient\ResponseInterface
+    {
+        // Follow redirects here rather than in the client, so every hop goes
+        // through the same private-network check as the first URL.
+        $options['max_redirects'] = 0;
+
+        for ($hop = 0; ; $hop++) {
+            $response = $this->requestWithRetries($method, $url, $options, $retries);
+            $status = $response->getStatusCode();
+            $location = $response->getHeaders(false)['location'][0] ?? null;
+
+            if (!in_array($status, [301, 302, 303, 307, 308], true) || !is_string($location) || $location === '') {
+                return $response;
+            }
+
+            if ($hop >= self::MAX_REDIRECTS) {
+                throw new \RuntimeException(sprintf('Too many redirects (more than %d).', self::MAX_REDIRECTS));
+            }
+
+            $next = $this->resolveRedirectUrl($url, $location);
+            if ($next === null || (!$this->allowPrivateNetworks && $this->isBlockedUrl($next))) {
+                throw new \RuntimeException('Redirect blocked: the target resolves to a private or internal network address.');
+            }
+
+            if ($status === 303 || ($method === 'POST' && in_array($status, [301, 302], true))) {
+                $method = 'GET';
+                unset($options['body']);
+            }
+
+            if (parse_url($next, PHP_URL_HOST) !== parse_url($url, PHP_URL_HOST)) {
+                $options['headers'] = $this->withoutCredentialHeaders($options['headers'] ?? []);
+            }
+
+            $url = $next;
+        }
+    }
+
+    private function resolveRedirectUrl(string $base, string $location): ?string
+    {
+        $parts = parse_url($base);
+        if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
+            return null;
+        }
+
+        $origin = $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
+
+        $resolved = match (true) {
+            preg_match('#^[a-z][a-z0-9+.-]*:#i', $location) === 1 => $location,
+            str_starts_with($location, '//') => $parts['scheme'] . ':' . $location,
+            str_starts_with($location, '/') => $origin . $location,
+            default => $origin . rtrim(dirname($parts['path'] ?? '/') === '.' ? '/' : dirname($parts['path'] ?? '/'), '/') . '/' . $location,
+        };
+
+        $scheme = strtolower((string) parse_url($resolved, PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true) ? $resolved : null;
+    }
+
+    /**
+     * @param array<string, string> $headers
+     * @return array<string, string>
+     */
+    private function withoutCredentialHeaders(array $headers): array
+    {
+        return array_filter(
+            $headers,
+            static fn(string $name): bool => !in_array(strtolower($name), ['authorization', 'cookie', 'proxy-authorization'], true),
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function requestWithRetries(string $method, string $url, array $options, int $retries): \Symfony\Contracts\HttpClient\ResponseInterface
     {
         $attempt = 0;
 

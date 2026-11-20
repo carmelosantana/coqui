@@ -246,3 +246,125 @@ test('isAvailable delegates to primary', function () {
 
     expect($provider->isAvailable())->toBeTrue();
 });
+
+function partialStreamProvider(string $model, string $partial, \Throwable $error): ProviderInterface
+{
+    return new class ($model, $partial, $error) implements ProviderInterface {
+        public function __construct(
+            private readonly string $model,
+            private readonly string $partial,
+            private readonly \Throwable $error,
+        ) {}
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            throw $this->error;
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            yield new Response(content: $this->partial, finishReason: ProviderFinishReason::Stop, model: $this->model);
+            throw $this->error;
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return null;
+        }
+
+        public function models(): array
+        {
+            return [];
+        }
+
+        public function isAvailable(): bool
+        {
+            return true;
+        }
+
+        public function getModel(): string
+        {
+            return $this->model;
+        }
+
+        public function withModel(string $model): static
+        {
+            return $this;
+        }
+    };
+}
+
+test('stream does not move to a second fallback once a fallback has yielded a chunk', function () {
+    $provider = new FallbackProvider(
+        failingProvider('primary', new \RuntimeException('HTTP 502 Bad Gateway')),
+        [
+            partialStreamProvider('fallback-1', 'Half', new \RuntimeException('Idle timeout reached')),
+            stubProvider('fallback-2', 'Other answer'),
+        ],
+    );
+
+    $chunks = [];
+    try {
+        foreach ($provider->stream([]) as $chunk) {
+            $chunks[] = $chunk->content;
+        }
+    } catch (\RuntimeException) {
+    }
+
+    expect($chunks)->toBe(['Half']);
+});
+
+test('stream rethrows without falling back once the primary has yielded a chunk', function () {
+    $primary = new class implements ProviderInterface {
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            throw new \RuntimeException('unused');
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            yield new Response(content: 'Half an ans', finishReason: ProviderFinishReason::Stop, model: 'primary');
+            throw new \RuntimeException('Idle timeout reached');
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return null;
+        }
+
+        public function models(): array
+        {
+            return [];
+        }
+
+        public function isAvailable(): bool
+        {
+            return true;
+        }
+
+        public function getModel(): string
+        {
+            return 'primary';
+        }
+
+        public function withModel(string $model): static
+        {
+            return $this;
+        }
+    };
+
+    $provider = new FallbackProvider($primary, [stubProvider('fallback', 'A whole other answer')]);
+
+    $chunks = [];
+    $thrown = null;
+    try {
+        foreach ($provider->stream([]) as $chunk) {
+            $chunks[] = $chunk->content;
+        }
+    } catch (\RuntimeException $e) {
+        $thrown = $e;
+    }
+
+    expect($chunks)->toBe(['Half an ans'])
+        ->and($thrown?->getMessage())->toBe('Idle timeout reached');
+});

@@ -172,7 +172,37 @@ final class ConfigManager
             return $value !== '' ? '***' : '';
         }
 
+        return self::maskSecrets($value);
+    }
+
+    /**
+     * Mask every value held under a secret-looking key, at any depth, so a
+     * subtree (`api`, `models.providers.x`, `mcp`) never returns a key.
+     */
+    public static function maskSecrets(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+
+        foreach ($value as $key => $child) {
+            if (is_string($key) && self::isSecretKey($key)) {
+                $value[$key] = ($child === '' || $child === null) ? $child : '***';
+                continue;
+            }
+            $value[$key] = self::maskSecrets($child);
+        }
+
         return $value;
+    }
+
+    private static function isSecretKey(string $key): bool
+    {
+        $lower = strtolower($key);
+
+        return $lower === 'key'
+            || preg_match('/api_?key|secret|passw(or)?d|authorization|credential|private_?key|cookie/', $lower) === 1
+            || preg_match('/token$/', $lower) === 1;
     }
 
     /**

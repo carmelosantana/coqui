@@ -62,9 +62,33 @@ final class PhpExecuteTool implements ToolInterface
         'fputcsv',
     ];
 
+    /**
+     * Process-spawning functions, blocked at the engine level for the same
+     * reason: a variable function call (`$f = 'sys' . 'tem'; $f(...)`) slips
+     * past the static sanitizer. Shell access belongs to the exec tool, which
+     * has its own policy, blacklist and audit trail.
+     */
+    private const DISABLED_EXEC_FUNCTIONS = [
+        'exec',
+        'shell_exec',
+        'system',
+        'passthru',
+        'proc_open',
+        'popen',
+        'pcntl_exec',
+        'pcntl_fork',
+        'mail',
+    ];
+
     private const RUNTIME_GUARD_PREFIX = 'php_execute bootstrap failed:';
 
     private readonly ScriptSanitizer $sanitizer;
+
+    /** @return list<string> */
+    private static function disabledFunctions(): array
+    {
+        return [...self::DISABLED_WRITE_FUNCTIONS, ...self::DISABLED_EXEC_FUNCTIONS];
+    }
 
     public function __construct(
         private readonly string $projectRoot,
@@ -350,7 +374,7 @@ final class PhpExecuteTool implements ToolInterface
             ['__REQUIRED_OPEN_BASEDIR__', '__REQUIRED_DISABLED_FUNCTIONS__', '__PREFIX__'],
             [
                 var_export($this->buildOpenBasedirPaths(), true),
-                var_export(self::DISABLED_WRITE_FUNCTIONS, true),
+                var_export(self::disabledFunctions(), true),
                 self::RUNTIME_GUARD_PREFIX,
             ],
             $guard,
@@ -446,7 +470,7 @@ final class PhpExecuteTool implements ToolInterface
             $openBasedirDirective = '"' . $openBasedirDirective . '"';
         }
 
-        $disableFunctionsDirective = 'disable_functions=' . implode(',', self::DISABLED_WRITE_FUNCTIONS);
+        $disableFunctionsDirective = 'disable_functions=' . implode(',', self::disabledFunctions());
         $disableCliOpcacheDirective = 'opcache.enable_cli=0';
         $disableJitDirective = 'opcache.jit=0';
         $disableJitBufferDirective = 'opcache.jit_buffer_size=0';
