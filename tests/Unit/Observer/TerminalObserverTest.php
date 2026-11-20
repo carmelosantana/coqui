@@ -437,3 +437,33 @@ test('tool result only auto-previews the first image in a turn', function () {
         cleanupTestTree($workspace);
     }
 });
+
+test('a cancelled run shows Cancelled, not an error', function () {
+    [$observer, $output] = makeTerminalObserver();
+
+    // php-agents 0.18 fires agent.error 'Task cancelled' then agent.finish (Cancelled) on every cancel.
+    $observer->handleEvent('agent.error', 'Task cancelled');
+    $observer->handleEvent('agent.finish', new \CarmeloSantana\PHPAgents\Agent\Event\RunFinish(
+        \CarmeloSantana\PHPAgents\Enum\AgentFinishReason::Cancelled,
+        new \CarmeloSantana\PHPAgents\Provider\Usage(),
+        1,
+        'test-model',
+    ));
+
+    $text = $output->fetch();
+    expect($text)->toContain('Cancelled')
+        ->and($text)->not->toContain('Error');
+});
+
+test('a finish that is not a cancel prints nothing extra', function () {
+    [$observer, $output] = makeTerminalObserver();
+
+    $observer->handleEvent('agent.finish', new \CarmeloSantana\PHPAgents\Agent\Event\RunFinish(
+        \CarmeloSantana\PHPAgents\Enum\AgentFinishReason::Done,
+        new \CarmeloSantana\PHPAgents\Provider\Usage(),
+        1,
+        'test-model',
+    ));
+
+    expect(trim($output->fetch()))->toBe('');
+});

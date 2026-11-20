@@ -108,3 +108,20 @@ test('agent.error emits error SSE event with message', function () {
     expect($stream->buffer)->toContain('event: error');
     expect($stream->buffer)->toContain('"message":"Something went wrong"');
 });
+
+test('a cancelled run emits a cancelled SSE event, not an error', function () {
+    $stream = new TestWritableStream();
+    $observer = new SseObserver($stream);
+
+    $observer->handleEvent('agent.error', 'Task cancelled');
+    $observer->handleEvent('agent.finish', new \CarmeloSantana\PHPAgents\Agent\Event\RunFinish(
+        \CarmeloSantana\PHPAgents\Enum\AgentFinishReason::Cancelled,
+        new \CarmeloSantana\PHPAgents\Provider\Usage(),
+        2,
+        'test-model',
+    ));
+
+    expect($stream->buffer)->toContain('event: cancelled')
+        ->and($stream->buffer)->toContain('"message":"Task cancelled"')
+        ->and($stream->buffer)->not->toContain('event: error');
+});

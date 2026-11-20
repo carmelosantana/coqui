@@ -61,6 +61,11 @@ final class TurnProcessObserver implements SplObserver
 
     private function handleEvent(string $event, mixed $data): void
     {
+        // A cancel is recorded once, from agent.finish, not as an error.
+        if (RunCancellation::isCancelError($event, $data)) {
+            return;
+        }
+
         [$eventType, $eventData] = match ($event) {
             'agent.start' => ['agent_start', []],
             'agent.iteration' => ['iteration', ['number' => $data]],
@@ -72,6 +77,9 @@ final class TurnProcessObserver implements SplObserver
             'agent.text_delta' => ['text_delta', ['content' => is_string($data) ? $data : '']],
             'agent.done' => ['done', $this->formatDone($data)],
             'agent.error' => ['error', ['message' => (string) $data]],
+            'agent.finish' => RunCancellation::isCancelledFinish($event, $data)
+                ? ['cancelled', ['message' => RunCancellation::MESSAGE]]
+                : [null, null],
             'agent.warning' => ['warning', ['message' => is_string($data) ? $data : '']],
             'agent.budget_warning' => ['budget_warning', is_array($data) ? $data : []],
             'agent.summary' => ['summary', is_array($data) ? $data : []],

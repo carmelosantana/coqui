@@ -52,6 +52,11 @@ final class BackgroundTaskObserver implements SplObserver
             $this->emitHeartbeat();
         }
 
+        // A cancel is recorded once, from agent.finish, not as an error.
+        if (RunCancellation::isCancelError($event, $data)) {
+            return;
+        }
+
         $eventData = match ($event) {
             'agent.start' => [],
             'agent.iteration' => ['number' => $data],
@@ -61,6 +66,9 @@ final class BackgroundTaskObserver implements SplObserver
             'agent.tool_result' => $this->formatToolResult($data),
             'agent.done' => $this->formatDone($data),
             'agent.error' => ['message' => (string) $data],
+            'agent.finish' => RunCancellation::isCancelledFinish($event, $data)
+                ? ['message' => RunCancellation::MESSAGE]
+                : null,
             'child.start' => is_array($data) ? $data : ['role' => (string) $data],
             'child.end' => [],
             default => null,
@@ -80,6 +88,7 @@ final class BackgroundTaskObserver implements SplObserver
             'agent.tool_result' => 'tool_result',
             'agent.done' => 'done',
             'agent.error' => 'error',
+            'agent.finish' => 'cancelled',
             'child.start' => 'child_start',
             'child.end' => 'child_end',
             default => $event,
