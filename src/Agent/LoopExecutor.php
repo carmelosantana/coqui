@@ -173,6 +173,12 @@ final class LoopExecutor
             TerminationType::EvaluationBound => $definition->terminationCondition->maxReviewRounds,
         };
 
+        // Every loop stage is an auto-approved background turn, so the number
+        // of iterations is capped no matter who asked for more.
+        if ($maxIterations !== null) {
+            $maxIterations = min($maxIterations, CoquiDefaults::LOOP_MAX_ITERATIONS);
+        }
+
         $deadline = null;
 
         $terminationCriteria = match ($definition->terminationCondition->type) {

@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Toolkit;
 
+use CarmeloSantana\PathHelper\PathHelper;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
+use CoquiBot\Coqui\Support\FileSystemOperations;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
@@ -34,6 +36,12 @@ final class ShellToolkit implements ToolkitInterface
         '/\bphp\s+-r\b/i',                                                         // php -r inline execution
         '/\bmkfifo\b/i',                                                            // Named pipe creation
         '/\b(nc|ncat|netcat)\s/i',                                                  // Network tools
+        // Inline code hides its writes from the write-target check
+        '/\b(ba|z|da|k|fi)?sh\s+(-[a-z]+\s+)*-[a-z]*c[a-z]*\b/i',                  // sh -c, bash -lc
+        '/\bpython[0-9.]*\s+(-[a-z]+\s+)*-[a-z]*c\b/i',                           // python3 -c
+        '/\b(perl|ruby)\s+(-[a-z]+\s+)*-[a-z]*e\b/i',                             // perl -e, perl -pi -e, ruby -e
+        '/\b(node|nodejs|deno|bun)\s+(-[a-z-]+\s+)*(-e|-p|--eval|--print)\b/i',   // node -e
+        '/\beval\s/i',                                                            // eval
     ];
 
     /**
@@ -46,36 +54,23 @@ final class ShellToolkit implements ToolkitInterface
     ];
 
     /**
-     * Environment variable name patterns that are safe to pass to subprocesses.
-     * Checked case-insensitively. Prefix-matched (e.g. 'LC_' matches LC_ALL, LC_CTYPE).
-     *
-     * @var string[]
-     */
-    private const SAFE_ENV_PREFIXES = [
-        'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'PWD', 'OLDPWD',
-        'LANG', 'LANGUAGE', 'LC_', 'TERM', 'COLORTERM',
-        'TMPDIR', 'TMP', 'TEMP',
-        'DISPLAY', 'WAYLAND_DISPLAY', 'XDG_',
-        'EDITOR', 'VISUAL', 'PAGER',
-        'SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'GPG_AGENT_INFO',
-        'FORCE_COLOR', 'NO_COLOR', 'CLICOLOR', 'CLICOLOR_FORCE',
-        // Build tools
-        'GIT_', 'COMPOSER_', 'NODE_', 'NPM_', 'NVM_', 'YARN_',
-        'GOPATH', 'GOROOT', 'CARGO_', 'RUSTUP_', 'JAVA_HOME', 'MAVEN_',
-        'PIP_', 'VIRTUAL_ENV', 'CONDA_', 'PYENV_',
-        'DOCKER_', 'KUBECONFIG',
-        // Coqui workspace
-        'COQUI_WORKSPACE',
-    ];
-
-    /**
-     * Environment variable name patterns that are ALWAYS blocked,
-     * regardless of SAFE_ENV_PREFIXES. Substring-matched case-insensitively.
+     * Environment variable name patterns that are always stripped.
+     * Substring-matched case-insensitively, so they also catch NPM_TOKEN,
+     * COMPOSER_AUTH, DOCKER_AUTH_CONFIG and SSH_AUTH_SOCK (agent forwarding).
      *
      * @var string[]
      */
     private const SENSITIVE_ENV_PATTERNS = [
         'KEY', 'TOKEN', 'SECRET', 'PASSWORD', 'CREDENTIAL', 'AUTH',
+    ];
+
+    /**
+     * Exact names that match a sensitive pattern but carry no secret.
+     *
+     * @var string[]
+     */
+    private const SENSITIVE_ENV_EXCEPTIONS = [
+        'GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_AUTHOR_DATE',
     ];
 
     /**
@@ -94,7 +89,12 @@ final class ShellToolkit implements ToolkitInterface
         private readonly array $allowedPaths = [],
         private readonly bool $sandboxWrites = true,
         private readonly bool $scrubEnvironment = true,
-    ) {}
+    ) {
+        $this->fs = $rootPath !== null ? new FileSystemOperations($rootPath, $allowedPaths) : null;
+    }
+
+    /** Sandbox view used to recognise protected files; null without a root. */
+    private readonly ?FileSystemOperations $fs;
 
     public function tools(): array
     {
@@ -184,13 +184,19 @@ final class ShellToolkit implements ToolkitInterface
                     return ToolResult::error("Invalid working directory: {$cwd}");
                 }
 
-                // Sandbox writes: validate all write targets are within the sandbox.
-                // This check is always-on when enabled — not gated by allowlist or --unsafe.
-                if ($this->sandboxWrites) {
-                    $writeViolation = $this->validateWriteTargets($command, $effectiveCwd);
-                    if ($writeViolation !== null) {
-                        return ToolResult::error($writeViolation);
-                    }
+                // Protected files (.env, tokens, databases, openclaw.json) are
+                // off limits however the sandbox is configured.
+                $secretViolation = $this->validateSecretReferences($command, $effectiveCwd);
+                if ($secretViolation !== null) {
+                    return ToolResult::error($secretViolation);
+                }
+
+                // Write targets: control files are always protected; with
+                // sandboxWrites on, every target must also stay inside the
+                // sandbox. Not gated by allowlist or --unsafe.
+                $writeViolation = $this->validateWriteTargets($command, $effectiveCwd);
+                if ($writeViolation !== null) {
+                    return ToolResult::error($writeViolation);
                 }
 
                 // Build subprocess environment
@@ -388,55 +394,288 @@ final class ShellToolkit implements ToolkitInterface
     }
 
     /**
-     * Validate that all write targets in a shell command are within the sandbox.
+     * Validate the write targets of a shell command.
      *
-     * Parses redirect operators and write-oriented commands, extracts target
-     * paths, and validates each against the workspace root and allowed mounts.
+     * Parses redirect operators, write-oriented commands and `dd of=` in each
+     * simple command, and resolves every target against each working
+     * directory that command may run in (`cd` is tracked). A target that is a
+     * protected control file is always refused. With sandboxWrites on, a
+     * target must also stay inside the workspace or a read-write mount.
      *
      * This is a best-effort heuristic parser — it handles the common patterns
      * generated by LLMs but cannot parse all shell edge cases (eval, variable
-     * indirection, process substitution). Defense-in-depth via CatastrophicBlacklist
-     * and environment scrubbing covers what the parser misses.
+     * indirection, process substitution, interpreters writing files). Defense-
+     * in-depth via CatastrophicBlacklist and environment scrubbing covers some
+     * of what the parser misses; exec is not an isolation boundary.
      *
-     * @return string|null Error message if a write target escapes, null if clean
+     * @return string|null Error message if a write target is refused, null if clean
      */
     private function validateWriteTargets(string $command, string $effectiveCwd): ?string
     {
-        $targets = [];
-
-        // 1. Extract redirect targets (>, >>, 2>, 2>>, &>, &>>)
-        // Match unquoted redirections — skip inside single quotes
-        $targets = [...$targets, ...$this->extractRedirectTargets($command)];
-
-        // 2. Extract write-command destination arguments
-        $targets = [...$targets, ...$this->extractWriteCommandTargets($command)];
-
-        // 3. Check for dd of= pattern
-        if (preg_match('/\bdd\b.*\bof=([^\s]+)/i', $command, $m)) {
-            $targets[] = $m[1];
+        if (!$this->sandboxWrites && $this->fs === null) {
+            return null;
         }
 
-        // 4. Validate each target path
-        foreach ($targets as $target) {
-            $target = trim($target, "'\"");
-
-            if ($target === '' || $target === '/dev/null' || $target === '/dev/stderr' || $target === '/dev/stdout') {
-                continue;
+        foreach ($this->simpleCommands($command, $effectiveCwd) as ['text' => $text, 'cwds' => $cwds]) {
+            $targets = [
+                ...$this->extractRedirectTargets($text),
+                ...$this->extractWriteCommandTargets($text),
+            ];
+            if (preg_match('/\bdd\b.*\bof=([^\s]+)/i', $text, $m)) {
+                $targets[] = $m[1];
             }
 
-            // Block paths containing variable expansion or command substitution — we
-            // can't resolve them statically and they could point anywhere
-            if (preg_match('/\$[\({a-zA-Z_]|`/', $target)) {
-                return "Denied: shell write target contains variable expansion or command substitution: {$target}";
-            }
-
-            $violation = $this->isPathOutsideSandbox($target, $effectiveCwd);
-            if ($violation !== null) {
-                return $violation;
+            foreach ($targets as $target) {
+                $violation = $this->validateWriteTarget(trim($target, "'\""), $cwds);
+                if ($violation !== null) {
+                    return $violation;
+                }
             }
         }
 
         return null;
+    }
+
+    /**
+     * @param list<string|null> $cwds Candidate working directories (null = unknown)
+     */
+    private function validateWriteTarget(string $target, array $cwds): ?string
+    {
+        if ($target === '' || $target === '/dev/null' || $target === '/dev/stderr' || $target === '/dev/stdout') {
+            return null;
+        }
+
+        // Block paths containing variable expansion or command substitution — we
+        // can't resolve them statically and they could point anywhere
+        if (preg_match('/\$[\({a-zA-Z_]|`/', $target)) {
+            return $this->sandboxWrites
+                ? "Denied: shell write target contains variable expansion or command substitution: {$target}"
+                : null;
+        }
+
+        foreach ($cwds as $cwd) {
+            if ($cwd === null && !str_starts_with($target, '/') && !str_starts_with($target, '~')) {
+                if ($this->sandboxWrites) {
+                    return "Denied: cannot tell which directory this write lands in after a dynamic cd: {$target}";
+                }
+                continue;
+            }
+
+            $absolute = $this->absolutize($target, $cwd ?? '/');
+
+            if ($this->fs !== null && $this->fs->isWriteProtectedPath($absolute)) {
+                return "Denied: shell write target is a protected Coqui control file: {$target}";
+            }
+
+            if ($this->sandboxWrites) {
+                $violation = $this->isPathOutsideSandbox($absolute, $target);
+                if ($violation !== null) {
+                    return $violation;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Refuse a command when any word in it names a protected secret file.
+     *
+     * Each simple command is checked against the working directory it will
+     * run in (`cd` is tracked), globs are expanded, and words are also split
+     * on `=`, `<` and `>` so `if=.env` and `<.env` are caught. This is a
+     * heuristic: a path built at run time (variables, base64, recursive
+     * readers such as `grep -r .`) is not caught. See docs/FEATURES.md.
+     */
+    private function validateSecretReferences(string $command, string $effectiveCwd): ?string
+    {
+        if ($this->fs === null) {
+            return null;
+        }
+
+        foreach ($this->simpleCommands($command, $effectiveCwd) as ['tokens' => $tokens, 'cwds' => $cwds]) {
+            foreach ($tokens as $token) {
+                foreach (preg_split('/[=<>]+/', $token) ?: [] as $word) {
+                    if ($word === '' || str_starts_with($word, '-')) {
+                        continue;
+                    }
+
+                    foreach ($cwds as $cwd) {
+                        foreach ($this->candidatePaths($word, $cwd) as $path) {
+                            if ($this->fs->isSecretPath($path)) {
+                                return "Denied: command references a protected Coqui file (credentials or control state): {$word}";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Split a command line into simple commands, each with the set of working
+     * directories it may run in.
+     *
+     * Splits on unquoted `;`, `&`, `|`, newlines, parentheses and backticks.
+     * A `cd`/`pushd` adds its target to the candidate set for every later
+     * command (the old directories stay, since a subshell or `||` may not
+     * have changed directory). A target that cannot be resolved statically
+     * yields a null cwd, meaning "unknown".
+     *
+     * @return list<array{text: string, tokens: list<string>, cwds: list<string|null>}>
+     */
+    private function simpleCommands(string $command, string $effectiveCwd): array
+    {
+        $commands = [];
+        $cwds = [$effectiveCwd];
+
+        foreach ($this->splitOnOperators($command) as $segment) {
+            $tokens = array_values($this->tokenizeCommand($segment));
+            if ($tokens === []) {
+                continue;
+            }
+
+            $commands[] = ['text' => $segment, 'tokens' => $tokens, 'cwds' => $cwds];
+
+            if (in_array($tokens[0], ['cd', 'pushd'], true)) {
+                $target = $tokens[1] ?? '~';
+                foreach ($cwds as $cwd) {
+                    $cwds[] = $this->resolveCdTarget($target, $cwd);
+                }
+                $cwds = array_values(array_unique($cwds, SORT_REGULAR));
+            }
+        }
+
+        return $commands;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function splitOnOperators(string $command): array
+    {
+        $segments = [];
+        $current = '';
+        $quote = null;
+        $escapeNext = false;
+        $length = strlen($command);
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $command[$i];
+
+            if ($escapeNext) {
+                $current .= $char;
+                $escapeNext = false;
+                continue;
+            }
+
+            if ($char === '\\' && $quote !== "'") {
+                $current .= $char;
+                $escapeNext = true;
+                continue;
+            }
+
+            if ($quote !== null) {
+                $current .= $char;
+                if ($char === $quote) {
+                    $quote = null;
+                }
+                continue;
+            }
+
+            if ($char === "'" || $char === '"') {
+                $quote = $char;
+                $current .= $char;
+                continue;
+            }
+
+            // Redirection forms that contain & or |: >| >& &> 2>&1
+            $prev = $current === '' ? '' : $current[strlen($current) - 1];
+            if (($char === '|' || $char === '&') && $prev === '>') {
+                $current .= $char;
+                continue;
+            }
+            if ($char === '&' && ($command[$i + 1] ?? '') === '>') {
+                $current .= $char;
+                continue;
+            }
+
+            if (in_array($char, [';', '&', '|', "\n", "\r", '(', ')', '`', '{', '}'], true)) {
+                $segments[] = $current;
+                $current = '';
+                continue;
+            }
+
+            $current .= $char;
+        }
+
+        $segments[] = $current;
+
+        return array_values(array_filter(array_map('trim', $segments), static fn(string $s): bool => $s !== ''));
+    }
+
+    /**
+     * Resolve a `cd` argument against $cwd, or null when it is not static.
+     */
+    private function resolveCdTarget(string $target, ?string $cwd): ?string
+    {
+        if ($cwd === null || $target === '-' || preg_match('/[\$`*?\[]/', $target) === 1) {
+            return null;
+        }
+
+        return $this->absolutize($target, $cwd);
+    }
+
+    /**
+     * Absolute, lexically canonical paths $word may refer to from $cwd
+     * (glob matches when it holds glob characters). A null cwd only resolves
+     * absolute and home-relative words.
+     *
+     * @return list<string>
+     */
+    private function candidatePaths(string $word, ?string $cwd): array
+    {
+        if ($cwd === null && !str_starts_with($word, '/') && !str_starts_with($word, '~')) {
+            return [];
+        }
+
+        $path = $this->absolutize($word, $cwd ?? '/');
+
+        if (preg_match('/[*?\[]/', $word) === 1) {
+            return glob($path, GLOB_NOSORT) ?: [];
+        }
+
+        return [$path];
+    }
+
+    /**
+     * Make $path absolute against $cwd (expanding `~`) and canonicalise `.`
+     * and `..` lexically.
+     */
+    private function absolutize(string $path, string $cwd): string
+    {
+        if (str_starts_with($path, '~/') || $path === '~') {
+            $home = getenv('HOME') ?: '/';
+            $path = $home . '/' . ltrim(substr($path, 1), '/');
+        } elseif (!str_starts_with($path, '/')) {
+            $path = $cwd . '/' . $path;
+        }
+
+        $resolved = [];
+        foreach (explode('/', $path) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+            if ($segment === '..') {
+                array_pop($resolved);
+            } else {
+                $resolved[] = $segment;
+            }
+        }
+
+        return '/' . implode('/', $resolved);
     }
 
     /**
@@ -499,6 +738,8 @@ final class ShellToolkit implements ToolkitInterface
                 $pos++; // skip first >
                 if (($command[$pos] ?? '') === '>') {
                     $pos++; // skip second > (append mode)
+                } elseif (($command[$pos] ?? '') === '|') {
+                    $pos++; // skip | (>| overrides noclobber)
                 }
 
                 // Skip whitespace after operator
@@ -564,6 +805,11 @@ final class ShellToolkit implements ToolkitInterface
 
             $cmd = basename($tokens[0]);
 
+            if ($cmd === 'sed') {
+                $targets = [...$targets, ...$this->sedInPlaceTargets($tokens)];
+                continue;
+            }
+
             if (!in_array($cmd, self::WRITE_COMMANDS, true)) {
                 continue;
             }
@@ -588,6 +834,54 @@ final class ShellToolkit implements ToolkitInterface
         }
 
         return $targets;
+    }
+
+    /**
+     * File operands of a `sed -i` / `sed --in-place` command (none otherwise).
+     *
+     * @param string[] $tokens
+     * @return string[]
+     */
+    private function sedInPlaceTargets(array $tokens): array
+    {
+        $inPlace = false;
+        $scriptGiven = false;
+        $operands = [];
+
+        for ($j = 1, $count = count($tokens); $j < $count; $j++) {
+            $token = $tokens[$j];
+
+            if (in_array($token, ['-e', '--expression', '-f', '--file'], true)) {
+                $scriptGiven = true;
+                $j++; // skip the script / script file
+                continue;
+            }
+
+            if (str_starts_with($token, '--')) {
+                $inPlace = $inPlace || str_starts_with($token, '--in-place');
+                $scriptGiven = $scriptGiven || str_starts_with($token, '--expression=') || str_starts_with($token, '--file=');
+                continue;
+            }
+
+            if (str_starts_with($token, '-') && strlen($token) > 1) {
+                // Short options cluster (-n, -E, -ni); -i takes an optional suffix (-i.bak)
+                $letters = (string) preg_replace('/[^a-zA-Z].*$/', '', substr($token, 1));
+                $inPlace = $inPlace || str_contains($letters, 'i');
+                if (str_ends_with($letters, 'e') || str_ends_with($letters, 'f')) {
+                    $scriptGiven = true;
+                    $j++;
+                }
+                continue;
+            }
+
+            $operands[] = $token;
+        }
+
+        if (!$inPlace) {
+            return [];
+        }
+
+        return $scriptGiven ? $operands : array_slice($operands, 1);
     }
 
     /**
@@ -650,11 +944,12 @@ final class ShellToolkit implements ToolkitInterface
     }
 
     /**
-     * Check if a target path is outside the sandbox boundary.
+     * Check if an absolute, lexically canonical write target is outside the
+     * sandbox boundary.
      *
      * @return string|null Error message if outside sandbox, null if within
      */
-    private function isPathOutsideSandbox(string $target, string $effectiveCwd): ?string
+    private function isPathOutsideSandbox(string $canonicalized, string $target): ?string
     {
         if ($this->rootPath === null) {
             return null; // No sandbox configured
@@ -665,32 +960,6 @@ final class ShellToolkit implements ToolkitInterface
             return null;
         }
 
-        // Resolve the target to an absolute path
-        if (str_starts_with($target, '/')) {
-            $absoluteTarget = $target;
-        } elseif (str_starts_with($target, '~/') || $target === '~') {
-            // Home directory expansion
-            $home = getenv('HOME') ?: '/';
-            $absoluteTarget = $home . '/' . ltrim(substr($target, 1), '/');
-        } else {
-            $absoluteTarget = $effectiveCwd . '/' . $target;
-        }
-
-        // Canonicalize path segments (resolve . and ..)
-        $segments = explode('/', $absoluteTarget);
-        $resolved = [];
-        foreach ($segments as $segment) {
-            if ($segment === '' || $segment === '.') {
-                continue;
-            }
-            if ($segment === '..') {
-                array_pop($resolved);
-            } else {
-                $resolved[] = $segment;
-            }
-        }
-        $canonicalized = '/' . implode('/', $resolved);
-
         // Resolve symlinks when the parent directory exists (handles macOS /var → /private/var)
         $parentDir = dirname($canonicalized);
         $realParent = realpath($parentDir);
@@ -699,7 +968,7 @@ final class ShellToolkit implements ToolkitInterface
         }
 
         // Check if under workspace root
-        if (str_starts_with($canonicalized, $realRoot)) {
+        if (PathHelper::isWithinBasePath($canonicalized, $realRoot)) {
             return null;
         }
 
@@ -709,7 +978,7 @@ final class ShellToolkit implements ToolkitInterface
             if ($realMountPath === false) {
                 $realMountPath = $allowed['realPath'];
             }
-            if (str_starts_with($canonicalized, $realMountPath)) {
+            if (PathHelper::isWithinBasePath($canonicalized, $realMountPath)) {
                 if ($allowed['readOnly']) {
                     return "Denied: write target is in a read-only mount: {$target}";
                 }
@@ -723,8 +992,9 @@ final class ShellToolkit implements ToolkitInterface
     /**
      * Build a sanitized environment for subprocess execution.
      *
-     * Keeps known-safe variables (PATH, HOME, GIT_*, etc.) and strips
-     * anything containing sensitive patterns (KEY, TOKEN, SECRET, etc.).
+     * Strips every variable whose name contains a sensitive pattern (KEY,
+     * TOKEN, SECRET, etc.), whatever its prefix, except a few exact names
+     * known to be harmless (GIT_AUTHOR_NAME). Everything else passes.
      *
      * @return array<string, string>
      */
@@ -737,23 +1007,11 @@ final class ShellToolkit implements ToolkitInterface
         foreach ($env as $name => $value) {
             $upperName = strtoupper($name);
 
-            // Safe prefixes take priority — explicitly allowed vars are never stripped.
-            // This prevents false positives like GIT_AUTHOR_NAME matching "AUTH".
-            $isSafe = false;
-            foreach (self::SAFE_ENV_PREFIXES as $prefix) {
-                $upperPrefix = strtoupper($prefix);
-                if ($upperName === $upperPrefix || str_starts_with($upperName, $upperPrefix)) {
-                    $isSafe = true;
-                    break;
-                }
-            }
-
-            if ($isSafe) {
+            if (in_array($upperName, self::SENSITIVE_ENV_EXCEPTIONS, true)) {
                 $sanitized[$name] = $value;
                 continue;
             }
 
-            // Non-safelisted vars are stripped if they contain sensitive patterns
             $isSensitive = false;
             foreach (self::SENSITIVE_ENV_PATTERNS as $pattern) {
                 if (str_contains($upperName, $pattern)) {
@@ -791,13 +1049,13 @@ final class ShellToolkit implements ToolkitInterface
         if ($this->rootPath !== null) {
             $realRoot = realpath($this->rootPath);
             if ($realRoot !== false) {
-                if (str_starts_with($resolved, $realRoot)) {
+                if (PathHelper::isWithinBasePath($resolved, $realRoot)) {
                     return $resolved;
                 }
 
                 // Check allowed mount paths
                 foreach ($this->allowedPaths as $allowed) {
-                    if (str_starts_with($resolved, $allowed['realPath'])) {
+                    if (PathHelper::isWithinBasePath($resolved, $allowed['realPath'])) {
                         return $resolved;
                     }
                 }

@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Tool;
 
+use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
+use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
@@ -82,6 +85,9 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?string $personaIdentityPreamble = null,
         private readonly ?string $activePersona = null,
         private readonly ?string $activePersonaPath = null,
+        private readonly ?ToolExecutionPolicyInterface $executionPolicy = null,
+        private readonly ?CancellationTokenInterface $cancellationToken = null,
+        private readonly float $budgetExitThreshold = 0.0,
     ) {}
 
     public function name(): string
@@ -192,6 +198,16 @@ final class SpawnAgentTool implements ToolInterface
             return ToolResult::error(sprintf('Persona "%s" does not allow role "%s".', $this->activePersona, $role));
         }
 
+        // A full-access child gets shell, file-write and web tools. Ask the
+        // parent's policy first, with the resolved access level, so the REPL
+        // can gate it (ExecutionPolicyFactory gates access_level=full).
+        if ($this->executionPolicy !== null && $this->resolveAccessLevel($role) === 'full') {
+            $decision = $this->executionPolicy->shouldExecute('spawn_agent', [...$input, 'access_level' => 'full']);
+            if ($decision !== true) {
+                return ToolResult::error($decision);
+            }
+        }
+
         $handoff = ChildAgentHandoff::fromInput(
             task: $task,
             context: $context,
@@ -229,6 +245,9 @@ final class SpawnAgentTool implements ToolInterface
                 toolExecutor: $this->toolExecutor,
                 personaIdentityPreamble: $this->personaIdentityPreamble,
                 activePersonaPath: $this->activePersonaPath,
+                executionPolicy: $this->executionPolicy,
+                cancellationToken: $this->cancellationToken,
+                budgetExitThreshold: $this->budgetExitThreshold,
             );
 
             // Attach observer if available
@@ -321,6 +340,7 @@ final class SpawnAgentTool implements ToolInterface
                     deniedCommands: $this->shellDeniedCommands,
                     timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                     unsafe: $this->unsafeMode,
+                    cancellationToken: $this->shellCancellationToken(),
                     rootPath: $this->workspacePath,
                     allowedPaths: $mountPaths,
                     sandboxWrites: ShellConfigResolver::resolveSandboxWrites($this->config),
@@ -340,6 +360,7 @@ final class SpawnAgentTool implements ToolInterface
                     workDir: $this->workspacePath,
                     allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                     timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
+                    cancellationToken: $this->shellCancellationToken(),
                     rootPath: $this->workspacePath,
                     allowedPaths: $mountPaths,
                     sandboxWrites: ShellConfigResolver::resolveSandboxWrites($this->config),
@@ -469,6 +490,11 @@ final class SpawnAgentTool implements ToolInterface
         }
 
         return $toolkits;
+    }
+
+    private function shellCancellationToken(): ?ProcessCancellationToken
+    {
+        return $this->cancellationToken instanceof ProcessCancellationToken ? $this->cancellationToken : null;
     }
 
     /**
@@ -604,6 +630,9 @@ final class SpawnAgentTool implements ToolInterface
                 activePersona: $this->activePersona,
                 activePersonaPath: $this->activePersonaPath,
                 personaIdentityPreamble: $this->personaIdentityPreamble,
+                executionPolicy: $this->executionPolicy,
+                cancellationToken: $this->cancellationToken,
+                budgetExitThreshold: $this->budgetExitThreshold,
             );
 
             $reviewerToolkits = $this->buildToolkits(SystemRole::Reviewer->value);

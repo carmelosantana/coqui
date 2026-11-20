@@ -1015,7 +1015,7 @@ final class SetupWizard
         $generateKey = $this->confirm('Generate an API key now?', true);
 
         if (!$generateKey) {
-            $this->io->text('<fg=gray>Skipped. Set COQUI_API_KEY manually. Localhost access works without a key.</>');
+            $this->io->text('<fg=gray>Skipped. Set COQUI_API_KEY manually. Without a key, any local process can drive the agent through the localhost API.</>');
             return;
         }
 

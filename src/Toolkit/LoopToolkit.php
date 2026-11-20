@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Toolkit;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
@@ -117,7 +118,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                 ),
                 new NumberParameter(
                     name: 'max_iterations',
-                    description: 'Override the maximum number of iterations (default: from definition)',
+                    description: 'Override the maximum number of iterations (default: from definition; capped at ' . CoquiDefaults::LOOP_MAX_ITERATIONS . ')',
                     required: false,
                 ),
                 new StringParameter(

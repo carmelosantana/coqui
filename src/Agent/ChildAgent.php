@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
+use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
@@ -37,10 +39,18 @@ final class ChildAgent extends AbstractAgent
         ?TickCallbackInterface $tickCallback = null,
         private readonly ?string $personaIdentityPreamble = null,
         private readonly ?string $activePersonaPath = null,
+        ?ToolExecutionPolicyInterface $executionPolicy = null,
+        ?CancellationTokenInterface $cancellationToken = null,
+        float $budgetExitThreshold = 0.0,
     ) {
+        // The parent turn's policy, cancellation and budget carry over, so a
+        // child cannot run a tool the parent would have gated or blocked.
         parent::__construct(
             $provider,
             $maxIterations,
+            executionPolicy: $executionPolicy,
+            cancellationToken: $cancellationToken,
+            budgetExitThreshold: $budgetExitThreshold,
             toolExecutor: $toolExecutor,
             tickCallback: $tickCallback,
         );

@@ -283,11 +283,13 @@ In the interactive REPL, successful screenshot-producing tools can now render on
 
 **What it does:** Five-layer safety model protecting your system:
 
-1. **Workspace sandboxing** — filesystem operations are restricted to the workspace
+1. **Workspace sandboxing** — the file tools are restricted to the workspace and mounts, and cannot read Coqui's secrets (`.env`, `.mcp-tokens/`, `data/*.db`, `openclaw.json`) or write its control files (`vendor/`, `mcp.json`, `roles/*.md`)
 2. **ScriptSanitizer** — static analysis blocks dangerous PHP patterns
-3. **CatastrophicBlacklist** — hardcoded patterns that always block (cannot be disabled)
+3. **CatastrophicBlacklist** — hardcoded patterns that are always checked, even with `--auto-approve` or `--unsafe` (they cannot be turned off, but like any pattern list they can be evaded by a command written to avoid them)
 4. **InteractiveApprovalPolicy** — confirmation prompts for destructive operations
 5. **Audit logging** — all tool executions are logged
+
+**What it does not do:** `exec` runs real commands on your machine as your user. Its write check, deny patterns and secret-file check are heuristics that read the command text: they stop the common mistakes and the obvious injections, not a determined one (a path built at run time, a recursive reader such as `grep -r`, a program that writes files itself). Reads outside the workspace (for example `~/.ssh`) are not blocked. For real isolation, run Coqui in its Docker setup or another sandbox (bubblewrap, a VM).
 
 **How it helps:** Safe by default. Destructive operations require confirmation. The blacklist catches dangerous patterns even in auto-approve mode.
 

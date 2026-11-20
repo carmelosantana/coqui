@@ -67,7 +67,7 @@ make docker-api PORT=3000    # API only
 | `--workdir` | `-w` | Current directory | Working directory (project root) |
 | `--workspace` | | Config/default | Workspace directory (overrides config resolution). Also configurable via `COQUI_WORKSPACE` env var |
 | `--unsafe` | | `false` | Disable script sanitization (dangerous) |
-| `--cors-origin` | | `*` | Allowed CORS origins (comma-separated) |
+| `--cors-origin` | | none without a key, `*` with one | Allowed CORS origins (comma-separated) |
 
 ## Authentication
 
@@ -85,7 +85,7 @@ The server resolves the API key from these sources (first match wins):
 2. `COQUI_API_KEY` environment variable
 3. `COQUI_API_KEY` in the workspace `.env` file
 
-If no key is found and the server is bound to a non-localhost address, the server **refuses to start**. When bound to `127.0.0.1` (the default), the server starts without a key and allows unauthenticated access.
+If no key is found and the server is bound to a non-localhost address, the server **refuses to start**. When bound to `127.0.0.1` (the default), the server starts without a key and allows unauthenticated access. In that mode it only answers requests addressed to a loopback `Host` and refuses browser requests from origins not listed with `--cors-origin` (see [CORS](#cors)). Any local process can still use it, so set a key on shared machines.
 
 To generate an API key, run `coqui setup` or set `COQUI_API_KEY` in your workspace `.env` file.
 
@@ -4667,7 +4667,7 @@ All `POST`, `PUT`, and `PATCH` requests must include a `Content-Type` header con
 
 ## CORS
 
-The server includes CORS headers on all responses. By default, all origins are allowed (`*`). Restrict origins with the `--cors-origin` flag:
+With an API key, the server includes CORS headers on all responses and by default allows all origins (`*`); the bearer key still guards every request. Without an API key, the server sends **no** CORS headers by default, refuses any `Host` header other than `127.0.0.1`, `localhost` or `[::1]` (a DNS-rebinding guard), and refuses browser requests that carry an `Origin` you have not listed (`403 forbidden`). Clients that send no `Origin` (curl, the CLI, SDKs) are unaffected. Allow specific browser origins with the `--cors-origin` flag:
 
 ```bash
 coqui --api-only --cors-origin "http://localhost:3000,https://myapp.com"
@@ -4679,7 +4679,7 @@ Preflight `OPTIONS` requests are handled automatically with a `204` response.
 
 The API server enforces the same layered safety model as the terminal REPL:
 
-1. **Catastrophic Blacklist** — hardcoded patterns that always block destructive commands (`rm -rf /`, `shutdown`, fork bombs, etc.). Cannot be bypassed.
+1. **Catastrophic Blacklist** — hardcoded patterns that are always checked, in every mode, against destructive commands (`rm -rf /`, `shutdown`, fork bombs, etc.). They cannot be turned off, but they match command text, so a command written to avoid them is not caught. `exec` is host execution, not an isolation boundary; see [Layered Safety](FEATURES.md#layered-safety).
 2. **Script Sanitizer** — static analysis of generated PHP code. Blocks `eval`, `exec`, `system`, etc. Disabled with `--unsafe`.
 3. **Auto-Approval** — in API mode, tool executions are auto-approved (no interactive prompt). The catastrophic blacklist still applies.
 

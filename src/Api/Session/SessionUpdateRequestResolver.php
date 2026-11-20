@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Session;
 
+use CoquiBot\Coqui\Agent\SessionWorkspacePolicy;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use React\Http\Message\Response;
@@ -26,6 +27,13 @@ final class SessionUpdateRequestResolver
      * readable at runtime, so this literal must be kept in sync with it by hand.
      */
     private const STATUS_ENUM = ['active', 'archived', 'closed'];
+
+    /**
+     * @param ?SessionWorkspacePolicy $workspacePolicy When set, a non-null workspace must pass it.
+     */
+    public function __construct(
+        private readonly ?SessionWorkspacePolicy $workspacePolicy = null,
+    ) {}
 
     /**
      * @param array<string, mixed> $body
@@ -55,6 +63,14 @@ final class SessionUpdateRequestResolver
             }
             $trimmed = trim($body['workspace']);
             $workspace = $trimmed === '' ? null : $trimmed;
+
+            // The workspace becomes the agent's sandbox root.
+            if ($workspace !== null && $this->workspacePolicy !== null && !$this->workspacePolicy->allows($workspace)) {
+                return $this->reject(
+                    'workspace must be an existing directory inside the Coqui workspace or a read-write mount',
+                    ['field' => 'workspace'],
+                );
+            }
         }
 
         $pinned = null;

@@ -28,6 +28,27 @@ final class CorsMiddleware
     }
 
     /**
+     * Origins to allow for a given --cors-origin value.
+     *
+     * An explicit value always wins. Without one, a keyed API keeps the old
+     * `*` default (the bearer key still guards it), but a keyless API gets
+     * no CORS at all: an empty list means "do not install CorsMiddleware".
+     *
+     * @return list<string>
+     */
+    public static function resolveOrigins(?string $option, bool $hasApiKey): array
+    {
+        if ($option === null || trim($option) === '') {
+            return $hasApiKey ? ['*'] : [];
+        }
+
+        return array_values(array_filter(
+            array_map('trim', explode(',', $option)),
+            static fn(string $origin): bool => $origin !== '',
+        ));
+    }
+
+    /**
      * @param callable(ServerRequestInterface): Response $next
      */
     public function __invoke(ServerRequestInterface $request, callable $next): Response

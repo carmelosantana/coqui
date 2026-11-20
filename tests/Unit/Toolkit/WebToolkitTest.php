@@ -471,3 +471,71 @@ test('web_search makes request with query and API key', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('results');
 });
+
+// ---------------------------------------------------------------
+// #8 — DNS pinning and IPv6 / embedded-IPv4 ranges
+// ---------------------------------------------------------------
+
+test('http_request blocks IPv6 private, mapped and embedded IPv4 addresses', function (string $url) {
+    $result = webFindTool(new WebToolkit(), 'http_request')->execute(['url' => $url]);
+
+    expect($result->status)->toBe(ToolResultStatus::Error)
+        ->and($result->content)->toContain('private or internal network');
+})->with([
+    'unique local' => 'http://[fd00::1]/',
+    'unique local fc' => 'http://[fc12:3456::1]/',
+    'link local' => 'http://[fe80::1]/',
+    'mapped loopback' => 'http://[::ffff:127.0.0.1]/',
+    'mapped loopback hex' => 'http://[::ffff:7f00:1]/',
+    'mapped metadata' => 'http://[::ffff:169.254.169.254]/',
+    'nat64 loopback' => 'http://[64:ff9b::7f00:1]/',
+    '6to4 private' => 'http://[2002:c0a8:0101::1]/',
+    'unspecified' => 'http://[::]/',
+    'carrier-grade nat' => 'http://100.64.0.1/',
+    'this network' => 'http://0.0.0.0:3300/',
+]);
+
+test('http_request pins the connection to the address it checked', function () {
+    $seen = [];
+    $client = new MockHttpClient(static function (string $method, string $url, array $options) use (&$seen): MockResponse {
+        $seen[] = $options['resolve'] ?? null;
+
+        return new MockResponse('ok', ['http_code' => 200]);
+    });
+    $toolkit = new WebToolkit(httpClient: $client, hostResolver: static fn(string $host): array => ['93.184.215.14']);
+
+    $result = webFindTool($toolkit, 'http_request')->execute(['url' => 'https://api.example.test/data']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success)
+        ->and($seen)->toBe([['api.example.test' => '93.184.215.14']]);
+});
+
+test('http_request refuses a host that rebinds to a private address after the first check', function () {
+    $answers = [['93.184.215.14'], ['127.0.0.1']];
+    $requests = 0;
+    $client = new MockHttpClient(static function () use (&$requests): MockResponse {
+        $requests++;
+
+        return new MockResponse('LOCAL-API-SECRET', ['http_code' => 200]);
+    });
+    $toolkit = new WebToolkit(
+        httpClient: $client,
+        hostResolver: static function (string $host) use (&$answers): array {
+            return array_shift($answers) ?? ['127.0.0.1'];
+        },
+    );
+
+    $result = webFindTool($toolkit, 'http_request')->execute(['url' => 'http://rebind.example.test/']);
+
+    expect($requests)->toBe(0)
+        ->and($result->content)->not->toContain('LOCAL-API-SECRET')
+        ->and($result->content)->toContain('private or internal network');
+});
+
+test('http_request refuses a host when any of its addresses is private', function () {
+    $toolkit = new WebToolkit(hostResolver: static fn(string $host): array => ['93.184.215.14', '10.0.0.5']);
+
+    $result = webFindTool($toolkit, 'http_request')->execute(['url' => 'http://mixed.example.test/']);
+
+    expect($result->content)->toContain('private or internal network');
+});

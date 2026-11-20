@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Agent;
 
+use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
@@ -42,6 +44,9 @@ final class CodeReviewCycle
         private readonly ?string $activePersona = null,
         private readonly ?string $activePersonaPath = null,
         private readonly ?string $personaIdentityPreamble = null,
+        private readonly ?ToolExecutionPolicyInterface $executionPolicy = null,
+        private readonly ?CancellationTokenInterface $cancellationToken = null,
+        private readonly float $budgetExitThreshold = 0.0,
     ) {}
 
     /**
@@ -189,6 +194,9 @@ final class CodeReviewCycle
             toolExecutor: $this->toolExecutor,
             personaIdentityPreamble: $this->personaIdentityPreamble,
             activePersonaPath: $this->activePersonaPath,
+            executionPolicy: $this->executionPolicy,
+            cancellationToken: $this->cancellationToken,
+            budgetExitThreshold: $this->budgetExitThreshold,
         );
 
         if ($this->observer !== null) {
@@ -262,6 +270,9 @@ final class CodeReviewCycle
             toolExecutor: $this->toolExecutor,
             personaIdentityPreamble: $this->personaIdentityPreamble,
             activePersonaPath: $this->activePersonaPath,
+            executionPolicy: $this->executionPolicy,
+            cancellationToken: $this->cancellationToken,
+            budgetExitThreshold: $this->budgetExitThreshold,
         );
 
         if ($this->observer !== null) {
