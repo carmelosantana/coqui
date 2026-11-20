@@ -860,3 +860,31 @@ test('getSystemPromptText includes persona soul content', function () {
     expect($systemPromptText)->toContain('Bond glyph: 𑁍');
     expect($systemPromptText)->toContain('You are the system test persona.');
 });
+
+test('the fallback provider gets the run cancellation token so a cancel stops failover', function () {
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => [
+                    'primary' => 'ollama/qwen3:latest',
+                    'fallbacks' => ['ollama/llama3:latest'],
+                ],
+                'roles' => ['coder' => 'ollama/qwen3:latest'],
+            ],
+        ],
+    ]);
+    $token = new \CoquiBot\Coqui\Api\ProcessCancellationToken();
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: new RoleResolver($config),
+        config: $config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        deps: new OrchestratorDependencies(cancellationToken: $token),
+    );
+
+    $provider = $agent->provider();
+    expect($provider)->toBeInstanceOf(\CoquiBot\Coqui\Provider\FallbackProvider::class)
+        ->and((new \ReflectionProperty($provider, 'cancellationToken'))->getValue($provider))->toBe($token);
+});
