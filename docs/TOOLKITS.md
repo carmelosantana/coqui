@@ -85,7 +85,7 @@ The `extra.php-agents` section is what makes a package a toolkit:
     },
     "require": {
         "php": "^8.4",
-        "carmelosantana/php-agents": "^0.18 || @dev"
+        "carmelosantana/php-agents": "^0.19 || @dev"
     },
     "extra": {
         "php-agents": {
@@ -198,7 +198,7 @@ mkdir -p workspace/packages/my-toolkit/src
     },
     "require": {
         "php": "^8.4",
-        "carmelosantana/php-agents": "^0.18 || @dev"
+        "carmelosantana/php-agents": "^0.19 || @dev"
     },
     "extra": {
         "php-agents": {
@@ -446,7 +446,7 @@ Add dependencies to the `require` section of your toolkit's `composer.json`:
 {
     "require": {
         "php": "^8.4",
-        "carmelosantana/php-agents": "^0.18 || @dev",
+        "carmelosantana/php-agents": "^0.19 || @dev",
         "guzzlehttp/guzzle": "^7.0",
         "symfony/http-client": "^7.0"
     }

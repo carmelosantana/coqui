@@ -4,7 +4,7 @@
     "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
     "This file is @generated automatically"
   ],
-  "content-hash": "59a7009c6b2a8b001fd7546ee7de1061",
+  "content-hash": "960c100757a484bb359b3b33543afc65",
   "packages": [
     {
       "name": "carmelosantana/coqui-toolkit-images",
@@ -93,16 +93,16 @@
     },
     {
       "name": "carmelosantana/php-agents",
-      "version": "v0.18.0",
+      "version": "v0.19.0",
       "source": {
         "type": "git",
         "url": "https://github.com/carmelosantana/php-agents.git",
-        "reference": "648c1361e8ffb811ab5eb8c78959f95fa1fb9c2f"
+        "reference": "6c1ff19c3f81ce6fe88dc580d653f219a96a3a9f"
       },
       "dist": {
         "type": "zip",
-        "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/648c1361e8ffb811ab5eb8c78959f95fa1fb9c2f",
-        "reference": "648c1361e8ffb811ab5eb8c78959f95fa1fb9c2f",
+        "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/6c1ff19c3f81ce6fe88dc580d653f219a96a3a9f",
+        "reference": "6c1ff19c3f81ce6fe88dc580d653f219a96a3a9f",
         "shasum": ""
       },
       "require": {
@@ -147,9 +147,9 @@
       ],
       "support": {
         "issues": "https://github.com/carmelosantana/php-agents/issues",
-        "source": "https://github.com/carmelosantana/php-agents/tree/v0.18.0"
+        "source": "https://github.com/carmelosantana/php-agents/tree/v0.19.0"
       },
-      "time": "2026-11-20T02:55:52+00:00"
+      "time": "2026-11-24T13:57:23+00:00"
     },
     {
       "name": "carmelosantana/php-pathhelper",

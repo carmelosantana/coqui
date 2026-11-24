@@ -15,7 +15,7 @@
     "ext-pdo_sqlite": "*",
     "ext-xml": "*",
     "carmelosantana/coqui-toolkit-images": "^0.1",
-    "carmelosantana/php-agents": "^0.18.0",
+    "carmelosantana/php-agents": "^0.19.0",
     "carmelosantana/php-pathhelper": "^0.1",
     "coquibot/coqui-toolkit-mod-manager": "^0.1",
     "dragonmantank/cron-expression": "^3.0",
