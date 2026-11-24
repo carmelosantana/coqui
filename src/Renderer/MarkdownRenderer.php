@@ -32,7 +32,8 @@ final class MarkdownRenderer
         $converter = self::getConverter();
 
         try {
-            $html = $converter->convert($markdown);
+            // CommonMark throws on invalid UTF-8, which streamed model text can be.
+            $html = $converter->convert(mb_scrub($markdown, 'UTF-8'));
         } finally {
             self::$imagePreviewService = $previousService;
             self::$imagePreviewState = $previousState;

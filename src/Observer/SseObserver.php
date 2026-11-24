@@ -236,7 +236,9 @@ final class SseObserver implements SplObserver
             return;
         }
 
-        $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        // Model output can be invalid UTF-8. Substitute rather than throw: since
+        // php-agents 0.18.1 an observer exception escapes Agent::run().
+        $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR);
         $this->stream->write("event: {$event}\ndata: {$json}\n\n");
     }
 }
