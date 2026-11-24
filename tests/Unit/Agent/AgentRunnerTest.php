@@ -1281,3 +1281,88 @@ test('run ends a turn cancelled mid-stream without a turn error and keeps the st
         cleanupAgentRunnerFixture($fixture);
     }
 });
+
+// --- run response cap (php-agents 0.18.1: RunLimits::$maxResponseBytes defaults to 32 MiB) ---
+
+test('run stops a turn past the default 32 MiB response cap as budget exhausted', function () {
+    $fixture = createAgentRunnerFixture();
+
+    // One MiB per delta, one delta past the run's default cap.
+    $provider = new class implements ProviderInterface {
+        public int $deltas = 0;
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            throw new \LogicException('not used');
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            throw new \LogicException('not used');
+        }
+
+        public function streamEvents(array $messages, array $tools = [], array $options = []): iterable
+        {
+            $chunk = str_repeat('a', 1024 * 1024);
+            $limit = intdiv(\CarmeloSantana\PHPAgents\Agent\RunLimits::DEFAULT_MAX_RESPONSE_BYTES, strlen($chunk)) + 1;
+            for ($i = 0; $i < $limit; $i++) {
+                $this->deltas++;
+                yield new \CarmeloSantana\PHPAgents\Provider\Stream\TextDelta($chunk);
+            }
+            yield new \CarmeloSantana\PHPAgents\Provider\Stream\Finish(ProviderFinishReason::Stop);
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return [];
+        }
+
+        public function models(): array
+        {
+            return [];
+        }
+
+        public function isAvailable(): bool
+        {
+            return true;
+        }
+
+        public function getModel(): string
+        {
+            return 'test/mock';
+        }
+
+        public function withModel(string $model): static
+        {
+            return $this;
+        }
+    };
+
+    try {
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($fixture['config']),
+            config: $fixture['config'],
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($fixture['config']),
+            deps: new AgentRunnerDependencies(
+                providerResolver: static fn(string $model): ProviderInterface => $provider,
+            ),
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $result = $runner->run('Do the thing', $sessionId, allowAllPolicy());
+
+        expect($result->budgetExhausted)->toBeTrue()
+            ->and($result->iterationLimitReached)->toBeFalse()
+            ->and($result->error)->toBeNull()
+            ->and($result->content)->toBe('Response size limit reached.');
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});

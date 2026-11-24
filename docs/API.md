@@ -1053,7 +1053,7 @@ Relevant fields for REPL-style footer rendering:
 | `child_agent_count` | int | Number of child agents spawned |
 | `restart_requested` | bool | Whether the turn requested a Coqui restart |
 | `iteration_limit_reached` | bool | Whether the turn stopped because the iteration cap was reached |
-| `budget_exhausted` | bool | Whether the turn stopped because the context budget was exhausted |
+| `budget_exhausted` | bool | Whether the turn stopped because the context budget was exhausted, or because the model's responses passed 32 MiB in one turn (php-agents' default run cap; `content` is then `Response size limit reached.` and an `error` event carries the same text) |
 | `context_usage` | object or `null` | Structured context-window usage data for frontend progress-bar rendering |
 | `file_edits` | object[] or `null` | Files edited during the turn with operation type |
 | `review_feedback` | string or `null` | Post-turn automated review feedback when available |
