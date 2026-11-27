@@ -200,6 +200,7 @@ final class TurnRunCommand extends Command
                         $turnProcessId,
                         $role,
                         $questionResponder,
+                        $cancellationToken,
                     ): AgentTurnResult {
                         return $agentRunner->runSegment(
                             prompt: $actorPrompt,
@@ -213,6 +214,7 @@ final class TurnRunCommand extends Command
                             actorName: $actorName,
                             actorRole: $role ?? 'orchestrator',
                             questionResponder: $questionResponder,
+                            cancellationToken: $cancellationToken,
                         );
                     },
                 );
@@ -227,6 +229,7 @@ final class TurnRunCommand extends Command
                     $persona,
                     $turnProcessId,
                     $questionResponder,
+                    cancellationToken: $cancellationToken,
                 );
             }
 

@@ -49,5 +49,6 @@ interface AgentTurnRunnerInterface
         ?string $actorName = null,
         ?string $actorRole = null,
         ?QuestionResponderInterface $questionResponder = null,
+        ?CancellationTokenInterface $cancellationToken = null,
     ): AgentTurnResult;
 }

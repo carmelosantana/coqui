@@ -99,6 +99,7 @@ final class CapturingAgentRunner implements AgentTurnRunnerInterface
         ?string $actorName = null,
         ?string $actorRole = null,
         ?QuestionResponderInterface $questionResponder = null,
+        ?CancellationTokenInterface $cancellationToken = null,
     ): AgentTurnResult {
         $this->segmentResponders[] = $questionResponder;
 
