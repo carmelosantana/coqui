@@ -911,6 +911,8 @@ Send a prompt to the agent. This is the **core endpoint** for interacting with C
 
 By default, the response is a **Server-Sent Event (SSE) stream** that delivers real-time updates as the agent works (tool calls, results, content, etc.). Append `?stream=false` for a blocking JSON response.
 
+To stop a turn, close the connection. The server sends `SIGTERM` to the turn's `turn:run` process, which stops between streamed chunks and records the turn as `failed` with error `Cancelled via SIGTERM`.
+
 **Request Body**
 
 ```json
