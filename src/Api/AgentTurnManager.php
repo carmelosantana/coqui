@@ -106,7 +106,11 @@ final class AgentTurnManager
             return false;
         }
 
-        $pid = $this->pids[$turnProcessId] ?? 0;
+        // The PID captured at spawn is the setsid wrapper, which exits at once;
+        // the real child leads its own process group under the PID it records.
+        $turnProcess = $this->storage->getTurnProcess($turnProcessId);
+        $childPid = is_array($turnProcess) ? (int) ($turnProcess['pid'] ?? 0) : 0;
+        $pid = $childPid > 0 ? $childPid : ($this->pids[$turnProcessId] ?? 0);
 
         if ($pid > 0) {
             ProcessSpawner::killProcessGroup($pid, SIGTERM);
