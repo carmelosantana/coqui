@@ -1052,6 +1052,113 @@ test('runSegment reports a refusal as a segment error', function () {
     }
 });
 
+// --- cooperative cancellation for API turns (turn:run cancels this token on SIGTERM) ---
+
+function makeCountingProvider(ArrayObject $calls): ProviderInterface
+{
+    return new class($calls) implements ProviderInterface {
+        public function __construct(private readonly ArrayObject $calls) {}
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            $this->calls->append('chat');
+
+            return $this->response();
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            $this->calls->append('stream');
+
+            yield $this->response();
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return [];
+        }
+
+        public function models(): array
+        {
+            return [];
+        }
+
+        public function isAvailable(): bool
+        {
+            return true;
+        }
+
+        public function getModel(): string
+        {
+            return 'test/mock';
+        }
+
+        public function withModel(string $model): static
+        {
+            return $this;
+        }
+
+        private function response(): Response
+        {
+            return new Response(
+                content: 'The full answer.',
+                finishReason: ProviderFinishReason::Stop,
+                model: 'test/mock',
+                usage: new Usage(promptTokens: 10, completionTokens: 3, totalTokens: 13),
+            );
+        }
+    };
+}
+
+test('a cancelled token stops a runWithObserver or runSegment turn before the model is called', function (string $entry) {
+    $fixture = createAgentRunnerFixture();
+    $calls = new ArrayObject();
+
+    try {
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($fixture['config']),
+            config: $fixture['config'],
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($fixture['config']),
+            deps: new AgentRunnerDependencies(
+                providerResolver: static fn(string $model): ProviderInterface => makeCountingProvider($calls),
+            ),
+        );
+
+        $token = new \CoquiBot\Coqui\Api\ProcessCancellationToken();
+        $token->cancel();
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $result = match ($entry) {
+            'runWithObserver' => $runner->runWithObserver(
+                'Do the thing',
+                $sessionId,
+                allowAllPolicy(),
+                new \CoquiBot\Coqui\Observer\NullObserver(),
+                cancellationToken: $token,
+            ),
+            'runSegment' => $runner->runSegment(
+                'Do the thing',
+                $sessionId,
+                $fixture['storage']->createTurn($sessionId, 'Do the thing', 'ollama/qwen3:latest'),
+                allowAllPolicy(),
+                cancellationToken: $token,
+            ),
+        };
+
+        expect($calls->getArrayCopy())->toBe([])
+            ->and($result->content)->not->toBe('The full answer.');
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+})->with(['runWithObserver', 'runSegment']);
+
 // --- image attachments (php-agents 0.17: withImages needs an ImageResolverInterface) ---
 
 /**

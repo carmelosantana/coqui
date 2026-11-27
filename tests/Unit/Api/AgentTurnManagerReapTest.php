@@ -211,3 +211,39 @@ test('reap fails a turn whose child died before recording a PID, after the grace
     expect($ok)->toBeTrue();
     expect(countTurnEvents($this->storage, $turnProcessId, 'complete'))->toBe(1);
 });
+
+test('cancel signals the detached turn:run child, not the exited setsid wrapper', function () {
+    $bin = $this->workspace . '/fake-coqui';
+    writeFakeTurnBin($bin, $this->autoload, $this->dbPath, 'complete_after_sentinel', $this->sentinel, $this->ready);
+    file_put_contents($this->sentinel, '1'); // the child runs until it is signalled
+
+    $manager = new AgentTurnManager(
+        storage: $this->storage,
+        coquiBinPath: $bin,
+        configPath: '',
+        workDir: $this->workspace,
+        workspacePath: $this->workspace,
+    );
+
+    $turnProcessId = $manager->start($this->sessionId, 'Say PONG');
+    $ready = $this->ready;
+    expect(tickUntil($manager, fn() => file_exists($ready)))->toBeTrue();
+
+    $childPid = (int) ($this->storage->getTurnProcess($turnProcessId)['pid'] ?? 0);
+    expect($childPid)->toBeGreaterThan(0)
+        ->and(\CoquiBot\Coqui\Support\ProcessSpawner::isProcessAlive($childPid))->toBeTrue();
+
+    expect($manager->cancel($this->sessionId))->toBeTrue();
+
+    $stopped = tickUntil(
+        $manager,
+        fn() => !\CoquiBot\Coqui\Support\ProcessSpawner::isProcessAlive($childPid),
+        timeoutSeconds: 5.0,
+    );
+
+    if (!$stopped) {
+        posix_kill($childPid, SIGKILL); // do not leak the fake child
+    }
+
+    expect($stopped)->toBeTrue();
+});

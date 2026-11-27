@@ -168,8 +168,9 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?string $persona = null,
         ?string $turnProcessId = null,
         ?QuestionResponderInterface $questionResponder = null,
+        ?CancellationTokenInterface $cancellationToken = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role, persona: $persona, turnProcessId: $turnProcessId, questionResponder: $questionResponder);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, $cancellationToken, filePaths: $filePaths, role: $role, persona: $persona, turnProcessId: $turnProcessId, questionResponder: $questionResponder);
     }
 
     /**
@@ -245,6 +246,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
         ?string $actorName = null,
         ?string $actorRole = null,
         ?QuestionResponderInterface $questionResponder = null,
+        ?CancellationTokenInterface $cancellationToken = null,
     ): AgentTurnResult {
         return $this->executeSegment(
             prompt: $prompt,
@@ -258,6 +260,7 @@ final class AgentRunner implements AgentTurnRunnerInterface
             actorName: $actorName ?? $persona,
             actorRole: $actorRole ?? ($role ?? 'orchestrator'),
             questionResponder: $questionResponder,
+            cancellationToken: $cancellationToken,
         );
     }
 
